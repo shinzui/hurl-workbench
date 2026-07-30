@@ -11,3 +11,4 @@ result-*
 .claude/
 .agents/
 CLAUDE.local.md
+.seihou/manifest.json.tmp
