@@ -8,3 +8,6 @@ db/
 result
 result-*
 .pre-commit-config.yaml
+.claude/
+.agents/
+CLAUDE.local.md
