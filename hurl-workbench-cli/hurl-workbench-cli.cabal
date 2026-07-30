@@ -1,0 +1,61 @@
+cabal-version: 3.4
+name: hurl-workbench-cli
+version: 0.1.0.0
+synopsis: Command-line interface for hurl-workbench
+description:
+  A Haskell-powered Hurl workbench for composing, exploring, executing, and testing reusable API workflows without duplicating request templates.
+
+license: BSD-3-Clause
+license-file: ../LICENSE
+author: Nadeem Bitar
+maintainer: nadeem@gmail.com
+copyright: (c) 2026 Nadeem Bitar
+build-type: Simple
+extra-doc-files: ../CHANGELOG.md
+
+common common-options
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
+    -Wmissing-deriving-strategies
+
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+library
+  import: common-options
+  hs-source-dirs: src
+  exposed-modules:
+    HurlWorkbench.Cli
+
+  build-depends:
+    base >=4.20 && <5,
+    hurl-workbench-core,
+    generic-lens,
+    lens ^>=5.3,
+    optparse-applicative >=0.18,
+    text ^>=2.1,
+
+executable hurl-workbench
+  import: common-options
+  main-is: Main.hs
+  hs-source-dirs: app
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  build-depends:
+    base >=4.20 && <5,
+    hurl-workbench-cli,
