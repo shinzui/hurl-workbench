@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-30T23:31:53Z
 intention: "intention_01kytnndmnef28f9ksadwfac7h"
 master_plan: "docs/masterplans/1-build-hurl-workbench-for-reusable-api-workflows.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-18T18:29:32Z
+      mode: "update"
+      note: "Tightened workspace decoding, validation, name, value, and Haskell Jitsurei contracts before implementation."
 ---
 
 # Define the Typed Hurl Workspace Contract
@@ -63,6 +70,21 @@ bodies, captures, or assertions. Those remain in `.hurl` files.
   configuration or surprising remote lookup.
   Date: 2026-07-30
 
+- Decision: Make `ValidatedWorkspace` opaque and give every entity category its own name
+  newtype.
+  Rationale: Later libraries should not be able to skip semantic validation accidentally or
+  pass a recipe, matrix, service, or suite name where a workflow name is required merely
+  because all names happen to contain `Text`.
+  Date: 2026-09-18
+
+- Decision: Model committed and runtime plain values as `HurlValueLiteral`, not arbitrary
+  `Text`.
+  Rationale: Hurl 8 variable files infer booleans, nulls, integers, and floats, trim whole
+  lines, and split at the first `=`. Naming this contract and rejecting CR, LF, NUL, and
+  leading/trailing whitespace prevents a value from silently changing during secure file
+  transport.
+  Date: 2026-09-18
+
 
 ## Outcomes & Retrospective
 
@@ -82,13 +104,22 @@ package-local `license-file` and `extra-doc-files` paths point outside the packa
 Those packaging warnings are recorded for EP-6 and are not part of this plan.
 
 There is no local `docs/adr/` directory, and Mori returned no relevant cross-repository ADR
-for Hurl, API integration testing, or CLI architecture. The Dhall dependency was located
-through Mori as project `dhall-lang/dhall-haskell`, with source at
-`/Users/shinzui/Keikaku/hub/haskell/dhall-haskell-project`. Its local
-`docs/dhall-schema-evolution-pattern.md` explains why adding record fields is breaking
-unless user input is normalized through defaults. Hackage currently publishes `dhall`
-1.42.3 with GHC 9.12 support. Before editing bounds, recheck Hackage and the upstream
-`dhall-lang/dhall-haskell` release tags as required by repository policy.
+for Hurl, API integration testing, or CLI architecture. The Dhall dependency is
+`mori://dhall-lang/dhall-haskell/packages/dhall`; its schema-evolution guidance is
+`mori://dhall-lang/dhall-haskell/docs/dhall-schema-evolution-pattern`. That guidance
+explains why adding record fields is breaking unless user input is normalized through
+defaults. Hackage publishes `dhall` 1.42.3, and the Mori-located 1.42 source confirms that
+`inputFileWithSettings` accepts `EvaluateSettings`, not `InputSettings`.
+
+Implementation follows `mori://shinzui/haskell-jitsurei/docs/core-standards`,
+`mori://shinzui/haskell-jitsurei/docs/core-custom-prelude`, and
+`mori://shinzui/haskell-jitsurei/docs/core-record-patterns`. The existing Cabal common
+stanzas already select GHC2024 and the baseline extensions. EP-1 must correct
+`HurlWorkbench.Prelude` into the documented small package-qualified re-export module,
+enable `PackageImports` only in that module, keep `Data.Generics.Labels ()` out of the
+prelude, use strict record fields and explicit deriving strategies, and use postpositive
+`qualified` imports. Modules that actually use `#field` import `Data.Generics.Labels ()`
+themselves.
 
 In this plan, a *fragment* is a file containing one or more complete Hurl entries. A
 *workflow* is an ordered list of fragment names. A *parameter* declares an externally
@@ -149,17 +180,56 @@ Use these value contracts:
   `Suite` has `name`, non-empty `runs`, optional `service`, `failFast`, and optional
   `description`.
 
-Add corresponding strict types with explicit deriving strategies to
-`hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs`. Use newtypes for `EntityName`,
-`ParameterName`, and `WorkspaceRoot` so filesystem paths and logical names cannot be mixed
-accidentally. Add `HurlWorkbench.Workspace.Decode` with `FromDhall` instances and:
+Add corresponding strict records with `Generic` and explicit deriving strategies to
+`hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs`. Use distinct newtypes for
+`ParameterName`, `FragmentName`, `WorkflowName`, `RecipeName`, `MatrixName`,
+`MatrixCaseName`, `ServiceName`, `SuiteName`, and `WorkspaceRoot`. Do not use one generic
+`EntityName`; category-specific types make cross-category mistakes unrepresentable. Define
+`HurlValueLiteral` for plain binding values. Its smart constructor rejects embedded CR,
+LF, or NUL and leading or trailing whitespace, while permitting the first-`=` split used
+by Hurl. Document that the remaining text uses Hurl 8 inference (`true`, `false`, `null`,
+integer, float, quoted string, or ordinary string). Secret values remain opaque runtime
+values and never inhabit the Dhall model.
+
+First bring `hurl-workbench-core/src/HurlWorkbench/Prelude.hs` into conformance with the
+Haskell Jitsurei custom-prelude pattern. Re-export only genuinely common types/functions
+and `Control.Lens`; remove blanket `Data.Generics.Product`/`Data.Generics.Sum` re-exports,
+use package-qualified imports in that module, and never import `Data.Generics.Labels` from
+it. Add `HurlWorkbench.Workspace.Decode` with `FromDhall` instances and:
 
 ```haskell
-decodeWorkspaceFile :: FilePath -> IO Workspace
+decodeWorkspaceFile
+  :: FilePath
+  -> IO (Either WorkspaceError Workspace)
 ```
 
-Decode with `Dhall.inputFileWithSettings Dhall.defaultInputSettings Dhall.auto` so relative
-imports resolve from the manifest's directory. Do not add a fallback JSON/YAML parser.
+Decode with `Dhall.inputFile Dhall.auto`; in Dhall 1.42 this delegates to
+`inputFileWithSettings defaultEvaluateSettings` and sets the import root to the manifest's
+directory. If custom evaluation settings become necessary, pass
+`Dhall.defaultEvaluateSettings`, never `defaultInputSettings`. Do not add a fallback
+JSON/YAML parser. Normalize parse, import, type, and decode failures into
+`WorkspaceError`; do not catch asynchronous exceptions.
+
+Add `HurlWorkbench.Workspace.Context` with:
+
+```haskell
+data WorkspaceContext = WorkspaceContext
+  { manifestPath :: !FilePath
+  , workspaceRoot :: !WorkspaceRoot
+  , workspace :: !Workspace
+  }
+  deriving stock (Generic, Eq, Show)
+
+data ValidatedWorkspace
+
+loadWorkspaceContext
+  :: WorkspaceSource
+  -> IO (Either WorkspaceError WorkspaceContext)
+```
+
+Keep the `ValidatedWorkspace` constructor internal. It contains the context plus indexed
+maps for every category, so later plans perform typed lookup without rebuilding maps or
+carrying a root separately.
 Expose the new modules from `hurl-workbench-core/hurl-workbench-core.cabal` and add bounded
 dependencies on `containers`, `directory`, `filepath`, and `dhall`.
 
@@ -178,7 +248,10 @@ data WorkspaceSource
   = ExplicitWorkspace FilePath
   | DiscoveredWorkspace FilePath
 
-discoverWorkspace :: Maybe FilePath -> FilePath -> IO WorkspaceSource
+discoverWorkspace
+  :: Maybe FilePath
+  -> FilePath
+  -> IO (Either WorkspaceError WorkspaceSource)
 ```
 
 If `--workspace FILE` is present, resolve that exact path and fail if it does not exist.
@@ -191,16 +264,22 @@ Add `HurlWorkbench.Workspace.Validate` with an accumulating validator:
 
 ```haskell
 data ValidationIssue = ValidationIssue
-  { location :: Text
-  , message :: Text
+  { location :: !Text
+  , message :: !Text
   }
+  deriving stock (Generic, Eq, Show)
 
-validateWorkspace :: WorkspaceRoot -> Workspace -> IO [ValidationIssue]
+validateWorkspace
+  :: WorkspaceContext
+  -> IO (Either (NonEmpty ValidationIssue) ValidatedWorkspace)
 ```
 
 Validation rules are observable product behavior:
 
-- every entity name matches `[A-Za-z][A-Za-z0-9._-]*` and is unique within its category;
+- fragment, workflow, recipe, matrix, service, suite, and matrix-case names match
+  `[A-Za-z][A-Za-z0-9._-]*` and are unique within their category or parent;
+- parameter names match the Hurl-template-safe `[A-Za-z_][A-Za-z0-9_-]*` subset and reject
+  Hurl 8's reserved `getEnv`, `newDate`, and `newUuid` names;
 - `schemaVersion` is exactly `1`;
 - fragment paths are relative `.hurl` paths, exist as regular files, canonicalize inside
   the workspace root, and cannot escape through `..` or symlinks;
@@ -215,7 +294,8 @@ Validation rules are observable product behavior:
 - suites have at least one run, and every workflow, recipe, matrix, and service reference
   resolves;
 - positive interval and timeout fields are non-zero, and HTTP readiness status is between
-  100 and 599.
+  100 and 599;
+- every `HurlValueLiteral` satisfies the lossless single-line transport rule;
 
 Return all independent issues in stable category/name order so one validation run is
 actionable. Define `WorkspaceError` separately for discovery/Dhall/IO failures. Render
@@ -254,6 +334,11 @@ Add `hurl-workbench-cli/test/Main.hs` for parser tests and command-level tests a
 fixture workspaces. Change the executable entry point only enough to preserve
 `HurlWorkbench.Cli.runCli :: IO ()`.
 
+Use `optparse-applicative` 0.19.x, whose `parserOptionGroup` API is required by later
+commands. Parser modules use postpositive qualified imports. Shared command runners load
+and validate once, then pass `ValidatedWorkspace`; handlers must not accept an unvalidated
+`Workspace` plus an unrelated `WorkspaceRoot`.
+
 This milestone is complete when the executable discovers a parent workspace, lists the
 fixture entities, reports every invalid reference, and its help no longer mentions
 `hello`.
@@ -262,21 +347,20 @@ fixture entities, reports every invalid reference, and its help no longer mentio
 ## Concrete Steps
 
 
-Run the first Mori commands from
-`/Users/shinzui/Keikaku/bokuno/mori-project/mori`; its local registry is intentionally
-near-empty, so use the global-registry recipe:
+Run all commands from the repository root. Locate dependency sources through Mori first:
 
-   ```bash
-   just mori-global registry show dhall-lang/dhall-haskell --full
-   just mori-global registry docs dhall-lang/dhall-haskell
-   ```
-
-Run the remaining commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
+```bash
+mori registry show dhall-lang/dhall-haskell --full
+mori registry docs dhall-lang/dhall-haskell
+mori registry show pcapriotti/optparse-applicative --full
+```
 
 1. Recheck released versions before editing bounds:
 
    ```bash
-   cabal info dhall tasty tasty-hunit
+   cabal info dhall optparse-applicative tasty tasty-hunit
+   git ls-remote --tags https://github.com/dhall-lang/dhall-haskell.git
+   git ls-remote --tags https://github.com/pcapriotti/optparse-applicative.git
    ```
 
 2. Add schema, source modules, fixtures, Cabal test suites, and CLI commands described
@@ -336,6 +420,10 @@ Acceptance is behavioral, not just compilation:
 - a secret literal default, duplicate entity, missing reference, `../` fragment, and
   symlink escape each produce a specific error;
 - independent semantic issues are reported together in stable order;
+- later modules can only receive the opaque `ValidatedWorkspace`, and compile-time tests
+  demonstrate that category-specific names cannot be interchanged;
+- plain values that would change when serialized through Hurl's line-oriented variable
+  file are rejected with the parameter location before any process starts;
 - `list` output contains names and relationships but never environment-derived values;
 - `cabal build all` and both package tests pass under GHC 9.12.4.
 
@@ -360,18 +448,45 @@ At completion, these modules are public from `hurl-workbench-core`:
 module HurlWorkbench.Workspace.Types
 module HurlWorkbench.Workspace.Decode
 module HurlWorkbench.Workspace.Discover
+module HurlWorkbench.Workspace.Context
 module HurlWorkbench.Workspace.Validate
 ```
 
 The central interfaces are:
 
 ```haskell
-decodeWorkspaceFile :: FilePath -> IO Workspace
-discoverWorkspace :: Maybe FilePath -> FilePath -> IO WorkspaceSource
-validateWorkspace :: WorkspaceRoot -> Workspace -> IO [ValidationIssue]
+decodeWorkspaceFile
+  :: FilePath
+  -> IO (Either WorkspaceError Workspace)
+discoverWorkspace
+  :: Maybe FilePath
+  -> FilePath
+  -> IO (Either WorkspaceError WorkspaceSource)
+loadWorkspaceContext
+  :: WorkspaceSource
+  -> IO (Either WorkspaceError WorkspaceContext)
+validateWorkspace
+  :: WorkspaceContext
+  -> IO (Either (NonEmpty ValidationIssue) ValidatedWorkspace)
 ```
+
+`Workspace` and `WorkspaceContext` are decoded/pre-validation values; only EP-1 loading and
+validation code plus focused tests use them directly. `ValidatedWorkspace` is the shared
+input to EP-2 through EP-6 and exports typed lookup functions without exporting its
+constructor.
 
 Use `dhall` 1.42.x for typed decoding, `containers` for indexed lookup and duplicate
 detection, and `directory`/`filepath` for canonical path checks. Use the existing
-`optparse-applicative` dependency for the CLI and Tasty plus `tasty-hunit` for tests. Do
-not add YAML, JSON, an HTTP client, a Hurl parser, or a process library in this plan.
+`optparse-applicative` dependency at `>=0.19 && <0.20` for the CLI and Tasty plus
+`tasty-hunit` for tests. Verify final bounds against Hackage and upstream release tags at
+implementation time. Do not add YAML, JSON, an HTTP client, a Hurl parser, or a process
+library in this plan.
+
+
+## Revision Note
+
+
+2026-09-18: Corrected the Dhall decoding API, replaced the generic logical name and loose
+workspace/root pair with category-specific names and an opaque validated workspace,
+specified Hurl value-literal semantics, and incorporated the applicable Haskell Jitsurei
+core and CLI conventions before implementation.

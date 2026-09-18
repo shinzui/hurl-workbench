@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-30T23:31:53Z
 intention: "intention_01kytnndmnef28f9ksadwfac7h"
 master_plan: "docs/masterplans/1-build-hurl-workbench-for-reusable-api-workflows.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-18T18:29:32Z
+      mode: "update"
+      note: "Made rendering failures explicit and added source-span and Hurlfmt capability contracts."
 ---
 
 # Compose and Render Reusable Hurl Workflows
@@ -59,6 +66,13 @@ workflow without implementing Hurl's grammar in Haskell.
   formatted fragments. JSON conversion parses the file without making formatting policy.
   Date: 2026-07-30
 
+- Decision: Return expected resolution, UTF-8, filesystem, and Hurlfmt failures explicitly
+  and preserve a line-span map from rendered lines to source fragments.
+  Rationale: A public library boundary should not turn invalid source into an unclassified
+  exception, and Hurlfmt's combined-file line number is actionable only when it can be
+  mapped back to the owning fragment.
+  Date: 2026-09-18
+
 
 ## Outcomes & Retrospective
 
@@ -70,10 +84,11 @@ workflow without implementing Hurl's grammar in Haskell.
 
 
 This plan depends on `docs/plans/1-define-the-typed-hurl-workspace-contract.md`. EP-1
-creates `WorkspaceRoot`, `Fragment`, `Workflow`, decoded workspace lookup, path validation,
-and the `validate`/`list` CLI. A workflow's `fragments` field is ordered and contains names,
-not paths. A fragment file is contractually one or more complete Hurl entries; fragments
-must not be header snippets, partial request bodies, or workbench-specific templates.
+creates category-specific names, the opaque `ValidatedWorkspace`, path validation, and the
+`validate`/`list` CLI. A workflow's `fragments` field is ordered and contains
+`FragmentName` values, not paths. A fragment file is contractually one or more complete
+Hurl entries; fragments must not be header snippets, partial request bodies, or
+workbench-specific templates.
 
 Hurl supports captures that remain available to later entries in the same file. That is
 the mechanism that lets an OAuth response fragment capture `accessToken` and a later
@@ -102,18 +117,36 @@ to ordered, already validated fragment records. It must report the workflow and 
 fragment name even though normal CLI paths validate first; library callers should not get
 partial functions.
 
-Add `hurl-workbench-core/src/HurlWorkbench/Workflow/Render.hs` with these public values:
+Add `hurl-workbench-core/src/HurlWorkbench/Workflow/Render.hs` with these public values.
+Every record uses strict fields, `Generic`, and explicit deriving strategies per
+`mori://shinzui/haskell-jitsurei/docs/core-record-patterns`:
 
 ```haskell
-data RenderedWorkflow = RenderedWorkflow
-  { workspaceRoot :: WorkspaceRoot
-  , workflowName :: EntityName
-  , sourceFragments :: NonEmpty ResolvedFragment
-  , contents :: Text
+data RenderedFragmentSpan = RenderedFragmentSpan
+  { fragmentName :: !FragmentName
+  , fragmentPath :: !FilePath
+  , firstLine :: !Int
+  , lastLine :: !Int
   }
+  deriving stock (Generic, Eq, Show)
 
-resolveWorkflow :: Workspace -> EntityName -> Either WorkflowError ResolvedWorkflow
-renderWorkflow :: WorkspaceRoot -> ResolvedWorkflow -> IO RenderedWorkflow
+data RenderedWorkflow = RenderedWorkflow
+  { workspaceRoot :: !WorkspaceRoot
+  , workflowName :: !WorkflowName
+  , sourceFragments :: !(NonEmpty ResolvedFragment)
+  , fragmentSpans :: !(NonEmpty RenderedFragmentSpan)
+  , contents :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+resolveWorkflow
+  :: ValidatedWorkspace
+  -> WorkflowName
+  -> Either WorkflowError ResolvedWorkflow
+
+renderWorkflow
+  :: ResolvedWorkflow
+  -> IO (Either RenderError RenderedWorkflow)
 ```
 
 Read every fragment strictly as UTF-8. Reject an invalid byte sequence with the fragment
@@ -125,8 +158,9 @@ ends with one line feed by adding one only when absent. Never remove bytes from 
 
 The result must not inject generated comments, timestamps, absolute paths, resolved
 variables, or secrets. The same workspace bytes therefore produce the same `contents` on
-every machine. Add unit tests for empty files, one/multiple trailing newlines, CRLF source,
-Unicode comments, invalid UTF-8, missing fragments, and ordered capture/use examples. An
+every machine. `fragmentSpans` is metadata and is not rendered into `contents`. Add unit
+tests for empty files, one/multiple trailing newlines, CRLF source, Unicode comments,
+invalid UTF-8, missing fragments, span boundaries, and ordered capture/use examples. An
 empty fragment is a validation error because it cannot contain a complete entry.
 
 This milestone is complete when golden comparisons prove exact ordering and separator
@@ -141,13 +175,23 @@ Add `hurl-workbench-core/src/HurlWorkbench/Hurl/Format.hs` with:
 ```haskell
 newtype HurlfmtExecutable = HurlfmtExecutable FilePath
 
+data HurlfmtCapabilities = HurlfmtCapabilities
+  { executable :: !HurlfmtExecutable
+  , version :: !Version
+  }
+  deriving stock (Generic, Eq, Show)
+
 data HurlfmtError
   = HurlfmtNotFound FilePath
-  | InvalidHurl EntityName Text
+  | InvalidHurl WorkflowName (Maybe RenderedFragmentSpan) Text
   | HurlfmtFailed ExitCode Text
+  deriving stock (Generic, Eq, Show)
+
+detectHurlfmtCapabilities
+  :: IO (Either DependencyError HurlfmtCapabilities)
 
 validateRenderedWorkflow
-  :: HurlfmtExecutable
+  :: HurlfmtCapabilities
   -> RenderedWorkflow
   -> IO (Either HurlfmtError ())
 ```
@@ -158,9 +202,10 @@ stderr for diagnostics. Never use a shell string. A parse failure must be associ
 the workflow name; retain Hurlfmt's line/column diagnostic because it refers to the exact
 rendered text available from `render`.
 
-Add `validateWorkspaceSyntax` that renders every workflow in stable name order and returns
-all parse errors rather than stopping at the first. Extend the EP-1 `validate` command to
-run semantic validation first and syntax validation only when semantic validation succeeds.
+Map parse line/column diagnostics through `fragmentSpans` when possible. Add
+`validateWorkspaceSyntax` that renders every workflow in stable name order and returns all
+parse errors rather than stopping at the first. Extend the EP-1 `validate` command to run
+semantic validation first and syntax validation only when semantic validation succeeds.
 If `hurlfmt` is absent, return one dependency error rather than one error per workflow.
 
 Use `typed-process` 0.2.13.x for this adapter after checking its Mori/upstream source and
@@ -204,14 +249,15 @@ cabal run hurl-workbench -- --workspace PATH render workflow oauth-property | hu
 ## Concrete Steps
 
 
-First run the source lookup from `/Users/shinzui/Keikaku/bokuno/mori-project/mori`:
+Run commands from the repository root. Mori does not currently index `typed-process`; record
+that lookup result before falling back to Hackage and the upstream repository:
 
 ```bash
-just mori-global registry search typed-process
+mori registry search typed-process
+cabal info typed-process temporary
+git ls-remote --tags https://github.com/fpco/typed-process.git
+git ls-remote --tags https://github.com/feuerbach/temporary.git
 ```
-
-Run the remaining implementation commands from
-`/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
 
 1. Confirm the pinned external tools and released process dependencies:
 
@@ -263,6 +309,8 @@ Run the remaining implementation commands from
 - `render` output is deterministic and contains unresolved `{{parameter}}` placeholders;
 - no environment variable or secret value is read during validation or rendering;
 - malformed Hurl is rejected by Hurlfmt with useful workflow and line context;
+- a combined-file Hurlfmt line is mapped to its fragment name/path whenever it falls inside
+  a recorded fragment span;
 - a missing Hurlfmt binary produces a dependency error rather than a Haskell exception;
 - temporary files are cleaned in every exit path;
 - rendering to a source fragment path is rejected before any file is changed;
@@ -284,11 +332,21 @@ Decision Log and ADR.
 ## Interfaces and Dependencies
 
 
-EP-2 owns `ResolvedWorkflow`, `RenderedWorkflow`, `resolveWorkflow`, `renderWorkflow`, and
+EP-2 owns `ResolvedWorkflow`, `RenderedFragmentSpan`, `RenderedWorkflow`,
+`HurlfmtCapabilities`, `resolveWorkflow`, `renderWorkflow`, and
 `validateRenderedWorkflow`. EP-3 and every higher-level plan must consume these interfaces
-instead of reading or concatenating fragments itself.
+instead of reading or concatenating fragments itself. Expected render and dependency
+failures remain in `Either`; asynchronous exceptions are never converted to domain errors.
 
 Use `Data.Text.Encoding.decodeUtf8'` for strict UTF-8, `Data.List.NonEmpty` for ordered
 non-empty fragments, `typed-process` with `proc` rather than `shell`, and a bracketed
 temporary-file library. Hurlfmt 8.x is the syntax oracle. Do not add a Hurl grammar parser,
 template substitution library, formatter, or HTTP client.
+
+
+## Revision Note
+
+
+2026-09-18: Updated composition to consume the opaque validated workspace and typed
+workflow names, made render failures explicit, assigned Hurlfmt capability ownership to
+EP-2, and added fragment line-span provenance so parse diagnostics identify their source.

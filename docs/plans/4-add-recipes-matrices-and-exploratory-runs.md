@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-30T23:31:53Z
 intention: "intention_01kytnndmnef28f9ksadwfac7h"
 master_plan: "docs/masterplans/1-build-hurl-workbench-for-reusable-api-workflows.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-18T18:29:32Z
+      mode: "update"
+      note: "Defined preparation, scheduled batch cases, bounded output, and truthful case outcomes."
 ---
 
 # Add Recipes Matrices and Exploratory Runs
@@ -63,6 +70,12 @@ of being forced into a generic abstraction.
   readable sequentially.
   Date: 2026-07-30
 
+- Decision: Represent batch outcomes as passed, Hurl-failed, start-failed, or skipped
+  instead of assigning an `ExitCode` to every case.
+  Rationale: Fail-fast creates cases that never start, and process setup can fail before
+  Hurl exists; neither condition has a truthful Hurl status.
+  Date: 2026-09-18
+
 
 ## Outcomes & Retrospective
 
@@ -78,7 +91,9 @@ binding resolution, Hurl capability detection, secure temp files, `RunRequest`, 
 single-run execution. EP-1 already defines `Recipe`, `Matrix`, `MatrixCase`, `Binding`, and
 the `ReadOnly`/`Mutating` safety marker. This plan supplies their runtime semantics.
 
-The motivating Constellation client repository has thirteen Hurl files. Every file repeats
+The motivating repository,
+`mori://tan/constellation1-client-hs/repos/constellation1-client-hs`, has thirteen Hurl
+files. Every file repeats
 the same OAuth client-credentials exchange and most differ only by MLS, OData resource, and
 `$filter`/`$select`/`$orderby`/`$top` values. One MLSPIN case uses a vendor-specific sold
 status; one co-buyer check has a custom capture/assert chain; one broken-decoding scenario
@@ -93,6 +108,12 @@ There is no relevant local or Mori-indexed ADR. If concurrency, safety, or artif
 become durable beyond the details already fixed in the master plan, record them in a local
 ADR while implementing this plan.
 
+The example and its tests follow
+`mori://shinzui/haskell-jitsurei/docs/api-hurl-integration-testing`: Hurl files are grouped
+by independent resource/scenario family, every request block asserts status, body-bearing
+responses assert media type plus stable semantics, and mutating or specially configured
+flows remain outside the safe default selection.
+
 
 ## Plan of Work
 
@@ -104,25 +125,39 @@ Add `hurl-workbench-core/src/HurlWorkbench/Run/Selection.hs`:
 
 ```haskell
 data RunSelection
-  = SelectWorkflow EntityName
-  | SelectRecipe EntityName
-  | SelectMatrix EntityName
+  = SelectWorkflow WorkflowName
+  | SelectRecipe RecipeName
+  | SelectMatrix MatrixName
+  deriving stock (Generic, Eq, Show)
+
+data SafetyDisposition
+  = Classified Safety
+  | UnclassifiedWorkflow
+  deriving stock (Generic, Eq, Show)
+
+data BindingLayer = BindingLayer
+  { source :: !BindingSource
+  , values :: !(Map ParameterName HurlValueLiteral)
+  }
+  deriving stock (Generic, Eq, Show)
 
 data ExpandedRun = ExpandedRun
-  { displayName :: Text
-  , workflow :: Workflow
-  , safety :: Safety
-  , bindingLayers :: NonEmpty BindingLayer
-  , artifactStem :: FilePath
+  { displayName :: !Text
+  , workflow :: !ResolvedWorkflow
+  , safety :: !SafetyDisposition
+  , bindingLayers :: ![BindingLayer]
+  , artifactStem :: !FilePath
   }
+  deriving stock (Generic, Eq, Show)
 
 resolveSelection
-  :: Workspace
+  :: ValidatedWorkspace
   -> RunSelection
   -> Either SelectionError (NonEmpty ExpandedRun)
 ```
 
-A workflow expands to one read-only low-level run with no committed binding layer. A recipe
+A workflow expands to one `UnclassifiedWorkflow` low-level run with no committed binding
+layer; it must not be mislabeled read-only when the workspace contains no such metadata. A recipe
 expands to one run with its recipe bindings. A matrix expands in declared case order; each
 case adds a higher-precedence layer over recipe bindings. A case may override a recipe
 value intentionally. The effective plain-binding precedence becomes explicit CLI value,
@@ -130,14 +165,49 @@ later variable file, earlier variable file, matrix case, recipe, declared enviro
 then parameter default. Secret precedence remains unchanged from EP-3 because committed
 layers cannot contain secrets.
 
-Sanitize `artifactStem` from logical names using the same entity-name contract; join a
+Sanitize `artifactStem` from validated logical names; join a
 matrix and case as `MATRIX/CASE`, never an arbitrary configured path. Reject duplicate case
-names and any binding not declared by the selected workflow even if EP-1 validation was
-skipped by a library caller.
+names and any binding not declared by the selected workflow as defense in depth even though
+the public input is already a `ValidatedWorkspace`.
 
 Extend EP-3's resolver to accept ordered `BindingLayer` values without importing recipe or
 matrix types into `HurlWorkbench.Parameter.Resolve`. Add table-driven tests for all
 precedence combinations and for stable case expansion.
+
+Add `HurlWorkbench.Run.Prepare` with:
+
+```haskell
+data PreparedRun = PreparedRun
+  { displayName :: !Text
+  , artifactStem :: !FilePath
+  , safety :: !SafetyDisposition
+  , renderedWorkflow :: !RenderedWorkflow
+  , bindings :: !ResolvedBindings
+  , options :: !HurlOptions
+  }
+
+prepareSelection
+  :: HurlfmtCapabilities
+  -> ValidatedWorkspace
+  -> BindingInput
+  -> HurlOptions
+  -> RunSelection
+  -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+
+buildBatchCase
+  :: HurlRunMode
+  -> RunOutputPolicy
+  -> [HurlReportTarget]
+  -> PreparedRun
+  -> BatchCase
+```
+
+Preparation resolves and renders each distinct workflow, validates it with Hurlfmt, resolves
+each case's layered bindings without spawning Hurl. The caller selects mode and final
+output/report policies with `buildBatchCase`, which preserves the display name and artifact
+stem beside the resulting `RunRequest`. Report every case's independent preflight
+failure before a batch starts; do not start earlier cases while a later case is still
+unprepared.
 
 This milestone is complete when every recipe/matrix case deterministically reduces to the
 same `RunRequest` shape used by a workflow and the resolver never handles a secret value
@@ -150,33 +220,75 @@ from committed configuration.
 Add `hurl-workbench-core/src/HurlWorkbench/Run/Batch.hs`:
 
 ```haskell
+newtype PositiveInt = PositiveInt Int
+  deriving stock (Generic, Eq, Ord, Show)
+
+mkPositiveInt :: Int -> Either BatchOptionError PositiveInt
+
 data BatchOptions = BatchOptions
-  { jobs :: PositiveInt
-  , failFast :: Bool
-  , outputDirectory :: Maybe FilePath
-  , mode :: HurlRunMode
+  { jobs :: !PositiveInt
+  , failFast :: !Bool
   }
+  deriving stock (Generic, Eq, Show)
+
+data BatchCase = BatchCase
+  { name :: !Text
+  , artifactStem :: !FilePath
+  , request :: !RunRequest
+  }
+  deriving stock (Generic)
+
+instance Show BatchCase where
+  show BatchCase { name = caseName } =
+    "BatchCase " <> show caseName <> " <redacted request>"
+
+data SkipReason
+  = FailFastTriggered
+  | BatchPrerequisiteFailed
+  deriving stock (Generic, Eq, Show)
+
+data CaseOutcome
+  = CasePassed
+  | CaseFailed ExitCode
+  | CaseStartFailed RunStartError
+  | CaseSkipped SkipReason
+  deriving stock (Generic, Eq, Show)
 
 data CaseResult = CaseResult
-  { name :: Text
-  , exitCode :: ExitCode
-  , elapsed :: NominalDiffTime
-  , outputPath :: Maybe FilePath
+  { name :: !Text
+  , outcome :: !CaseOutcome
+  , elapsed :: !(Maybe NominalDiffTime)
+  , outputPath :: !(Maybe FilePath)
+  , capturedOutput :: !(Maybe CapturedRunOutput)
   }
+  deriving stock (Generic, Eq, Show)
+
+data BatchResult = BatchResult
+  { cases :: !(NonEmpty CaseResult)
+  , selectedExitCode :: !ExitCode
+  }
+  deriving stock (Generic, Eq, Show)
 
 runBatch
-  :: HurlCapabilities
+  :: HurlRunner
   -> BatchOptions
-  -> NonEmpty PreparedRun
-  -> IO (NonEmpty CaseResult)
+  -> NonEmpty BatchCase
+  -> IO BatchResult
 ```
+
+Keep the `PositiveInt` constructor internal and use `mkPositiveInt` from CLI parsing and
+suite defaults, so a zero-worker queue cannot be represented.
 
 Use bounded concurrency with at most `jobs` active Hurl processes. Default to one job. With
 `failFast`, stop scheduling new cases after the first observed failure, wait for active
-children, and mark never-started cases as skipped in the summary. Without it, run every
-case. Return results in declaration order regardless of completion order.
+children, and mark never-started cases as `CaseSkipped` in the summary. A spawn or secure
+output setup failure is `CaseStartFailed`. Without fail-fast, run every case. Return results
+in declaration order regardless of completion order. Use an STM work queue with a fixed
+worker count rather than starting every case behind a semaphore, so fail-fast can stop work
+that has not actually been scheduled.
 
-Client-mode output rules are deliberate:
+The command constructs every `BatchCase` only after validating all artifact and report
+targets. Client-mode output rules are deliberate:
 
 - with one job and no output directory, inherit stdout and write case start/end labels to
   stderr, so each raw final response remains unmodified;
@@ -188,10 +300,12 @@ Client-mode output rules are deliberate:
   contain secrets.
 
 Test mode may use multiple jobs without response output because Hurl test mode suppresses
-final bodies, but workbench case summaries still go to stderr in declaration order. A
-batch exits zero only if every started case succeeds. Otherwise choose the first non-zero
-Hurl exit code in declaration order, not completion order. This is deterministic and does
-not alter EP-3's exact exit rule for a single run.
+final bodies. Every concurrent run uses `CaptureRunOutput`, never inherited streams; after
+workers finish, replay relevant child diagnostics and print workbench case summaries to
+stderr in declaration order. A batch exits zero only if every case passed. Otherwise choose
+the first non-zero Hurl exit code in declaration order; if the first unsuccessful case is a
+start failure use workbench exit `3`; skipped cases never invent a Hurl code. This is
+deterministic and does not alter EP-3's exact exit rule for a single run.
 
 Add fake-Hurl tests that measure the concurrency bound, force out-of-order completion,
 exercise fail-fast scheduling, inspect per-case output paths, and prove stable result
@@ -208,7 +322,8 @@ Extend `render`, `run`, and `test` to accept `workflow NAME` or `recipe NAME`. A
 
 ```text
 hurl-workbench [--workspace FILE] matrix NAME [--mode run|test] [--jobs N]
-  [--fail-fast|--keep-going] [--output-dir DIR] [BINDING_OPTIONS] [HURL_OPTIONS]
+  [--fail-fast|--keep-going] [--allow-mutating] [--output-dir DIR] [--overwrite]
+  [BINDING_OPTIONS] [HURL_OPTIONS]
 ```
 
 For `render recipe`, stdout is still only the workflow Hurl text; print a redacted binding
@@ -216,6 +331,11 @@ source summary to stderr only when `--explain` is requested. Refuse a `Mutating`
 any matrix containing one unless the command includes `--allow-mutating`. A direct workflow
 selection is the low-level escape hatch and has no recipe safety metadata; document this
 clearly in help.
+
+Use `parserOptionGroup` to group matrix flags under `Batch control`, `Bindings`, `Output`,
+and `Advanced Hurl arguments`, following
+`mori://shinzui/haskell-jitsurei/docs/cli-option-groups`. Reuse EP-3's binding/Hurl parsers
+instead of spelling the same flags again.
 
 Create `examples/vendor-odata/` with a local `hurl-workbench.dhall`, fragments, and a README.
 The example must be runnable against the test fixture rather than a proprietary endpoint,
@@ -295,7 +415,10 @@ Run commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
   runtime layers in the documented order;
 - no committed recipe or matrix can bind a secret parameter;
 - every matrix case becomes an isolated Hurl process and ordered result;
+- a skipped or pre-spawn-failed case has an explicit outcome and never a fabricated child
+  exit status;
 - concurrency never exceeds `--jobs`, and parallel client runs require separate outputs;
+- concurrent child streams never interleave on the parent terminal;
 - fail-fast stops new scheduling and still reaps active children;
 - mutating recipes require `--allow-mutating` every time;
 - response artifact directories/files are owner-only and visibly documented as potentially
@@ -321,11 +444,24 @@ children and report which cases completed, failed, or never started.
 ## Interfaces and Dependencies
 
 
-EP-4 owns `RunSelection`, `ExpandedRun`, `BindingLayer`, `BatchOptions`, `CaseResult`, and
-`runBatch`. EP-5 consumes expanded selections when suites are introduced. EP-3 continues
-to own `runHurl`; batch code must call it rather than copy its temp-file or argv logic.
+EP-4 owns `RunSelection`, `SafetyDisposition`, `ExpandedRun`, `BindingLayer`,
+`PreparedRun`, `prepareSelection`, `buildBatchCase`, `PositiveInt`, `BatchOptions`,
+`BatchCase`, `SkipReason`, `CaseOutcome`, `CaseResult`, `BatchResult`, and `runBatch`. EP-5
+consumes these exact selection, preparation, and result types when suites are introduced.
+EP-3 continues to own `HurlRunner`; batch code invokes the injected runner rather than
+copying temp-file or argv logic.
 
 Use `async` plus STM/semaphores, or an equivalently small bounded-concurrency primitive,
 after verifying the current Hackage release and upstream tag. Reuse `containers`,
 `typed-process`, `temporary`, and `time` already introduced. Do not add a database,
 persistent token cache, template engine, OData client, or response decoder.
+
+
+## Revision Note
+
+
+2026-09-18: Replaced generic names and ambiguous read-only workflow classification with
+typed selections, defined the previously missing `PreparedRun` API, modeled skipped and
+pre-spawn failures explicitly, and required captured output plus a real bounded work queue
+for deterministic concurrent runs. The example acceptance now incorporates the Haskell
+Jitsurei Hurl-suite standard.

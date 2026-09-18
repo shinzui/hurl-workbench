@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-30T23:31:53Z
 intention: "intention_01kytnndmnef28f9ksadwfac7h"
 master_plan: "docs/masterplans/1-build-hurl-workbench-for-reusable-api-workflows.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-18T18:29:32Z
+      mode: "update"
+      note: "Defined typed execution, output, report, environment, value transport, and start-failure boundaries."
 ---
 
 # Execute Hurl Workflows Securely
@@ -26,8 +33,9 @@ NAME` uses Hurl's test mode. Values are resolved predictably, secrets never appe
 spawned process argv, Hurl receives a workspace-root file boundary, stdout/stderr remain
 faithful to Hurl, and the CLI returns Hurl's exact exit status after Hurl starts.
 
-The same library-level `RunRequest -> RunResult` operation becomes the only execution
-primitive for recipes, matrices, and suites in later plans.
+The same library-level `HurlRunner` operation from `RunRequest` to either a start error or
+a `RunResult` becomes the only execution primitive for recipes, matrices, and suites in
+later plans.
 
 
 ## Progress
@@ -61,6 +69,20 @@ primitive for recipes, matrices, and suites in later plans.
   collapse or reinterpret them.
   Date: 2026-07-30
 
+- Decision: Make stream handling and report/output targets part of `RunRequest`, and
+  represent spawn failure separately from a started child's `ExitCode`.
+  Rationale: Interactive runs should inherit streams, while parallel batches must capture
+  diagnostics or write responses to isolated files. A process that never started did not
+  emit a truthful Hurl exit code.
+  Date: 2026-09-18
+
+- Decision: Remove every ambient `HURL_*` variable from the child environment after the
+  workbench resolves declared sources.
+  Rationale: Hurl 8 treats that namespace as an alternate configuration channel for test
+  mode, jobs, output, options, variables, and secrets; inheriting it would bypass the typed
+  request and precedence model.
+  Date: 2026-09-18
+
 
 ## Outcomes & Retrospective
 
@@ -72,9 +94,10 @@ primitive for recipes, matrices, and suites in later plans.
 
 
 This plan depends on `docs/plans/2-compose-and-render-reusable-hurl-workflows.md`, which
-owns `RenderedWorkflow` and the non-shell `typed-process` foundation. EP-1 defines plain
-and secret parameters, optional declared environment sources, and workflow parameter
-contracts. EP-3 must resolve values but must never substitute them into Hurl source.
+owns `RenderedWorkflow`, `HurlfmtCapabilities`, and the non-shell `typed-process`
+foundation. EP-1 defines `ValidatedWorkspace`, `HurlValueLiteral`, plain and secret
+parameters, optional declared environment sources, and workflow parameter contracts. EP-3
+must resolve values but must never substitute them into Hurl source.
 
 Hurl 8.x supports `--variables-file`, `--secrets-file`, `--file-root`, client mode, and
 `--test`. The official manual notes an important limit: secret values are redacted from
@@ -82,6 +105,12 @@ stderr logs and reports, but not from response bodies written to stdout. The wor
 document that limit and must not claim it can sanitize a third-party response. Hurl also
 rejects duplicate variable definitions, so the workbench resolves all supported sources
 to one variable map and one secret map before spawning.
+
+The reviewed Hurl 8.0.1 source is authoritative for the initial adapter. Its variable-file
+reader trims whole lines, ignores empty lines and lines beginning with `#`, splits on the
+first `=`, infers ordinary values, and forces secrets to strings. It also reads all ambient
+`HURL_*` variables. Compatibility tests pin those behaviors so a later supported Hurl
+major cannot silently alter value or environment semantics.
 
 The supported platform for the first release is macOS and Linux. That permits an explicit
 POSIX owner-only permission check for temporary secret material. Windows portability can
@@ -97,38 +126,55 @@ child output, and exit propagation when this plan lands.
 ### Milestone 1: Resolve plain and secret bindings without rendering them
 
 
-Add `hurl-workbench-core/src/HurlWorkbench/Parameter/Properties.hs` for the documented Hurl
-properties-file subset: UTF-8 lines of `NAME=VALUE`, split on the first `=`, with blank
-lines ignored. Reject a line without `=`, an invalid parameter name, duplicate names in one
-file, invalid UTF-8, and embedded NUL. Do not log secret-file contents in any error.
+Add `hurl-workbench-core/src/HurlWorkbench/Parameter/Properties.hs` for the exact supported
+Hurl 8 properties-file subset: UTF-8 lines are trimmed as complete lines; blank lines and
+trimmed lines beginning with `#` are ignored; remaining lines split on the first `=`. Reject
+a line without `=`, an invalid/reserved parameter name, duplicate names in one file,
+invalid UTF-8, CR/LF/NUL within a programmatic value, and leading/trailing value whitespace
+that would be lost by Hurl. Preserve additional `=` characters. Plain values become
+`HurlValueLiteral`; secret values remain opaque strings. Do not include a secret line or
+value in any error.
 
 Add `hurl-workbench-core/src/HurlWorkbench/Parameter/Resolve.hs` with:
 
 ```haskell
 data BindingInput = BindingInput
-  { plainOverrides :: Map ParameterName Text
-  , secretEnvironmentOverrides :: Map ParameterName Text
-  , variableFiles :: [FilePath]
-  , secretFiles :: [FilePath]
+  { plainOverrides :: !(Map ParameterName HurlValueLiteral)
+  , secretEnvironmentOverrides :: !(Map ParameterName Text)
+  , variableFiles :: ![FilePath]
+  , secretFiles :: ![FilePath]
   }
+  deriving stock (Generic, Eq, Show)
+
+data SecretValue
 
 data ResolvedBindings = ResolvedBindings
-  { variables :: Map ParameterName Text
-  , secrets :: Map ParameterName Text
+  { variables :: !(Map ParameterName HurlValueLiteral)
+  , secrets :: !(Map ParameterName SecretValue)
   }
 
+instance Show ResolvedBindings where
+  show _ = "ResolvedBindings <redacted>"
+
+mkSecretValue :: Text -> Either SecretValueError SecretValue
+
 resolveParameters
-  :: Workspace
+  :: ValidatedWorkspace
   -> Set ParameterName
   -> BindingInput
   -> IO (Either BindingError ResolvedBindings)
 
 resolveWorkflowBindings
-  :: Workspace
+  :: ValidatedWorkspace
   -> Workflow
   -> BindingInput
   -> IO (Either BindingError ResolvedBindings)
 ```
+
+Keep the `SecretValue` constructor and accessor internal. Its smart constructor enforces
+the same lossless line-transport restrictions as `HurlValueLiteral` (no CR, LF, NUL, or
+leading/trailing whitespace), but every failure reports only the parameter and source, not
+the candidate value. Additional `=` characters remain valid.
 
 For plain parameters, precedence from highest to lowest is explicit `--variable`, later
 `--variables-file`, earlier `--variables-file`, the parameter's declared environment, then
@@ -161,11 +207,11 @@ Add `hurl-workbench-core/src/HurlWorkbench/Hurl/Capabilities.hs`:
 
 ```haskell
 data HurlCapabilities = HurlCapabilities
-  { hurlExecutable :: FilePath
-  , hurlfmtExecutable :: FilePath
-  , hurlVersion :: Version
-  , hurlfmtVersion :: Version
+  { hurlExecutable :: !FilePath
+  , hurlVersion :: !Version
+  , hurlfmt :: !HurlfmtCapabilities
   }
+  deriving stock (Generic, Eq, Show)
 
 detectHurlCapabilities :: IO (Either DependencyError HurlCapabilities)
 ```
@@ -179,36 +225,85 @@ Add `hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs`:
 
 ```haskell
 data HurlRunMode = ClientMode | TestMode
+  deriving stock (Generic, Eq, Show)
+
+data RunOutputPolicy
+  = InheritRunOutput
+  | CaptureRunOutput
+  | ResponseFile FilePath
+  deriving stock (Generic, Eq, Show)
+
+data HurlReportTarget
+  = JUnitReport FilePath
+  | HtmlReport FilePath
+  | JsonReport FilePath
+  | TapReport FilePath
+  deriving stock (Generic, Eq, Show)
 
 data RunRequest = RunRequest
-  { renderedWorkflow :: RenderedWorkflow
-  , mode :: HurlRunMode
-  , bindings :: ResolvedBindings
-  , options :: HurlOptions
+  { renderedWorkflow :: !RenderedWorkflow
+  , mode :: !HurlRunMode
+  , bindings :: !ResolvedBindings
+  , options :: !HurlOptions
+  , outputPolicy :: !RunOutputPolicy
+  , reportTargets :: ![HurlReportTarget]
   }
+
+data CapturedRunOutput = CapturedRunOutput
+  { stdout :: !ByteString
+  , stderr :: !ByteString
+  }
+  deriving stock (Generic, Eq, Show)
 
 data RunResult = RunResult
-  { exitCode :: ExitCode
-  , elapsed :: NominalDiffTime
+  { exitCode :: !ExitCode
+  , elapsed :: !NominalDiffTime
+  , capturedOutput :: !(Maybe CapturedRunOutput)
+  }
+  deriving stock (Generic, Eq, Show)
+
+newtype HurlRunner = HurlRunner
+  { runHurl :: RunRequest -> IO (Either RunStartError RunResult)
   }
 
-runHurl :: HurlCapabilities -> RunRequest -> IO RunResult
+mkHurlRunner :: HurlCapabilities -> HurlRunner
 ```
 
 For each invocation, create one bracketed temporary directory containing the rendered
-`.hurl` file and, when non-empty, `variables.env` and `secrets.env`. Set owner read/write
-only (`0600`) before writing sensitive values, verify the resulting mode on POSIX, and
-remove the directory after the child exits or an exception is raised. Spawn Hurl with
-`--file-root WORKSPACE_ROOT`, the generated input files, `--test` only in `TestMode`, typed
-safe options, then the rendered file. Use inherited stdin/stdout/stderr and no shell.
+`.hurl` file and, when non-empty, `variables.env` and `secrets.env`. Use
+`System.IO.Temp.openBinaryTempFile`, whose POSIX contract creates mode `0600`, write through
+the returned handle, verify the resulting mode, and remove the directory after the child
+exits or an exception is raised. Serialize `HurlValueLiteral` exactly once and emit one
+unique name per generated file. Spawn Hurl with `--file-root WORKSPACE_ROOT`, the generated
+input files, `--test` only in `TestMode`, typed safe options, typed report targets, then the
+rendered file. Never use a shell.
+
+`InheritRunOutput` inherits stdin/stdout/stderr and is reserved for one interactive CLI
+run. `CaptureRunOutput` closes stdin and captures stdout/stderr for an orchestrator to emit
+in declaration order. `ResponseFile` closes stdin, pre-creates that exact response file as
+`0600`, passes it with `--output`, and captures diagnostics. Report targets likewise create
+only their exact validated files/directories and permit at most one target per format.
+`RunStartError` covers argument rejection, secure-file creation, and spawn failure before a
+child starts; any started child, including one that exits non-zero, returns `RunResult`.
 
 Define typed `HurlOptions` for common exploration controls: connect timeout, max time,
 retry count, retry interval, insecure TLS, include headers, JSON output, verbose level,
-curl export path, and response output path. Also support repeatable `--hurl-arg ARG` for
-options not yet modeled, but reject workbench-owned or value-bearing arguments:
-`--secret`, `--secrets-file`, `--variable`, `--variables-file`, `--file-root`, `--test`,
-all `--report-*` flags, `--output`, and positional input files. Report the rejected token
-before spawning. Never print a reconstructed command containing runtime values.
+curl export path. Response files and reports belong to the typed request fields rather than
+`HurlOptions`. A repeatable `--hurl-arg ARG` extension may expose only an audited,
+versioned allowlist of zero-argument, non-sensitive long flags not owned by the workbench.
+Its smart constructor rejects unknown flags, every `--name=value` token, short flags,
+positionals, and workbench-owned controls including secrets, variables, file root, mode,
+jobs/parallelism, globs, output, and reports. Options that carry a value must gain a typed
+field before use. This prevents an option from consuming the generated input path and
+prevents credential-like values from entering argv. Never print a reconstructed command
+containing runtime values.
+
+Build the child environment from the current environment after removing every key whose
+name begins with `HURL_`. Values explicitly named as parameter sources are read by the
+workbench before that filtering and transported through the generated files. Preserve
+unrelated settings such as proxy and certificate environment variables. Tests set hostile
+`HURL_TEST`, `HURL_OUTPUT`, `HURL_VARIABLE_*`, and `HURL_SECRET_*` values and prove they do
+not affect the child.
 
 Use `typed-process` 0.2.13.x, `temporary`, `time`, and `unix` after verifying their current
 registry releases and upstream tags. The executable already uses `-threaded`, as recommended
@@ -216,7 +311,9 @@ by `typed-process`.
 
 Create a fake-Hurl test executable or script in a test temporary directory that records
 argv paths and returns a requested exit code. Tests must prove secrets are absent from argv,
-all temp files are `0600`, `--file-root` is the manifest directory, mode flags are correct,
+all temp files and typed output files are `0600`, `--file-root` is the manifest directory,
+mode and report flags are correct, inherited versus captured output follows policy,
+ambient `HURL_*` variables are absent, spawn failure is not represented as a child exit,
 the child exit code is retained, and temp files disappear afterward. Add a development/test
 executable named `hurl-workbench-fixture-server` under
 `hurl-workbench-cli/test/fixture-server/Main.hs`, backed by WAI/Warp. It exposes local-only
@@ -252,6 +349,11 @@ workflow, syntax-check it, resolve bindings, and then call `runHurl`. Errors bef
 starts use workbench exit codes: `2` for workspace/binding/argument errors and `3` for a
 missing or unsupported dependency. Once Hurl starts, call `exitWith` using its exact
 `ExitCode`. Do not print a success banner over client-mode stdout.
+
+Group parser sections with `parserOptionGroup` from `optparse-applicative` 0.19 under
+`Bindings`, `HTTP and retry`, `Output and diagnostics`, and `Advanced Hurl arguments`, as
+specified by `mori://shinzui/haskell-jitsurei/docs/cli-option-groups`. The grouping changes
+help layout only; it must not create separate precedence behavior.
 
 This milestone is complete when CLI tests cover the entire preflight order and a shell sees
 the same non-zero status emitted by the fake or real Hurl process.
@@ -309,10 +411,14 @@ Run commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
 - missing and unexpected bindings are reported together before any HTTP request;
 - secret values never appear in argv, diagnostic rendering, exception text, or test logs;
 - generated Hurl, variable, and secret files are owner-only and are removed on every path;
+- ambient `HURL_*` values cannot alter mode, jobs, output, options, variables, or secrets;
 - Hurl receives the workspace root through `--file-root`;
 - the workbench does not decorate or parse single-run stdout/stderr;
+- concurrent callers can select capture or response-file output without inheriting
+  interleaved child streams;
 - client and test modes match direct Hurl behavior;
-- forbidden passthrough arguments are rejected before spawn;
+- unknown, value-bearing, sensitive, and workbench-owned passthrough arguments are rejected
+  before spawn;
 - `doctor` reports actual executable paths and versions;
 - Hurl's exact non-zero exit status reaches the parent shell;
 - real-Hurl integration and fake-process edge-case tests pass on macOS and Linux.
@@ -332,14 +438,25 @@ old, `doctor` provides the actionable path/version failure and no workspace is c
 ## Interfaces and Dependencies
 
 
-EP-3 owns `BindingInput`, `ResolvedBindings`, `resolveParameters`,
-`resolveWorkflowBindings`, `HurlCapabilities`, `HurlOptions`,
-`HurlRunMode`, `RunRequest`, `RunResult`, `runHurl`, and the shared local fixture-server
-contract. EP-4 and EP-5 may add binding layers or orchestrate multiple requests, but they
-must reduce every case to these interfaces and must not construct child argv independently.
+EP-3 owns `BindingInput`, `SecretValue`, `ResolvedBindings`, `resolveParameters`,
+`resolveWorkflowBindings`, `HurlCapabilities`, `HurlOptions`, `HurlRunMode`,
+`RunOutputPolicy`, `HurlReportTarget`, `RunRequest`, `RunStartError`, `CapturedRunOutput`,
+`RunResult`, `HurlRunner`, `mkHurlRunner`, and the shared local fixture-server contract. Secret
+constructors and unredacted renderers remain internal. EP-4 and EP-5 may add binding layers
+or orchestrate multiple requests, but they must reduce every case to these interfaces and
+must not construct child argv independently.
 
 Use `typed-process` for non-shell process control, `temporary` for bracketed directories,
 `unix` for POSIX permission enforcement, and `time` for elapsed duration. Use WAI/Warp only
 as test dependencies for the local integration server. Continue using Hurl/Hurlfmt 8.x as
 external runtime dependencies; do not add an HTTP implementation, response decoder, secret
 store, or logging framework to the production library.
+
+
+## Revision Note
+
+
+2026-09-18: Reworked the execution boundary around typed output/report policies, explicit
+spawn errors, injectable `HurlRunner`, lossless Hurl value literals, owner-only files, and
+filtered `HURL_*` child environments; also aligned command help with the Haskell Jitsurei
+option-group pattern.

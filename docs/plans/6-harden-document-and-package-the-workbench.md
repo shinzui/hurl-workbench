@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-30T23:31:55Z
 intention: "intention_01kytnndmnef28f9ksadwfac7h"
 master_plan: "docs/masterplans/1-build-hurl-workbench-for-reusable-api-workflows.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-18T18:29:32Z
+      mode: "update"
+      note: "Specified Haskell Jitsurei-aligned help, completion, version, Hurlfmt, and release contracts."
 ---
 
 # Harden Document and Package the Workbench
@@ -58,6 +65,13 @@ integration, both examples, schema compatibility, and package contents.
   that requires separate explicit authorization.
   Date: 2026-07-30
 
+- Decision: Expose completion generation as a first-class `completions SHELL` command and
+  make `--version` revision-aware.
+  Rationale: A stable public command avoids documenting optparse-applicative's hidden
+  completion protocol, while a package version plus Git revision makes installed builds
+  diagnosable. Both follow the applicable haskell-jitsurei CLI patterns.
+  Date: 2026-09-18
+
 
 ## Outcomes & Retrospective
 
@@ -88,6 +102,14 @@ At this point, scan all local ADR filenames/headings and read every ADR created 
 through EP-5. Update them when the actual interfaces differ from earlier decisions. No
 cross-repository ADR was relevant when the MasterPlan was created.
 
+Apply the CLI conventions in
+`mori://shinzui/haskell-jitsurei/docs/cli-overview`,
+`mori://shinzui/haskell-jitsurei/docs/cli-option-groups`,
+`mori://shinzui/haskell-jitsurei/docs/cli-shell-completions`, and
+`mori://shinzui/haskell-jitsurei/docs/cli-version-git-sha`. The example's hierarchical
+Dhall CLI configuration is a legacy pattern and is not applicable: this program's Dhall
+document is its domain workspace, not its command-line configuration.
+
 
 ## Plan of Work
 
@@ -97,9 +119,22 @@ cross-repository ADR was relevant when the MasterPlan was created.
 
 Review every command through `hurl-workbench-cli/src/HurlWorkbench/Cli/Options.hs` and the
 command modules. Ensure top-level and subcommand help consistently use the terms fragment,
-workflow, recipe, matrix, service, and suite. Add `--version` using the Cabal package
-version. Retain optparse-applicative's generated Bash, Zsh, and Fish completion hooks and
-document the exact commands.
+workflow, recipe, matrix, service, and suite. Build each command from a named
+`ParserInfo`/option-group parser, and configure `customExecParser` with help-on-error,
+help-on-empty, and terminal-width-aware output. Add `HurlWorkbench.Cli.Version`; render the
+Cabal package version from `Paths_hurl_workbench_cli.version` plus a short Git revision.
+Prefer the Nix-injected `GIT_HASH` CPP literal when defined; otherwise enable
+`TemplateHaskell` only in the version module and use `$$(GitHash.tGitInfoCwdTry)` with
+`GitHash.giHash`, falling back to `unknown` rather than failing a source build without
+`.git` metadata.
+
+Expose the stable public commands `hurl-workbench completions bash`, `... zsh`, and
+`... fish`. Render them with the exported `bashCompletionScript`, `zshCompletionScript`,
+and `fishCompletionScript` functions from `Options.Applicative.BashCompletion`, using the
+stable command name `hurl-workbench`; the generated scripts call the hidden completion
+query handled automatically by the same top-level parser. The hidden optparse-applicative
+completion flags remain an implementation mechanism and compatibility smoke target, not
+the documented API.
 
 Create one `HurlWorkbench.Cli.Error` renderer that maps domain errors to concise stderr
 messages and the established exit behavior. Errors must name the manifest and logical
@@ -112,9 +147,10 @@ semantic failures, Hurlfmt failures, missing variables, mutation gates, readines
 Hurl failure, and interrupted service cleanup. Fix any cross-command inconsistency through
 the owning interface rather than command-specific patches.
 
-This milestone is complete when CLI help is internally consistent, completion generation
-works for all three shells, every documented exit path is tested, and a secret-fixture scan
-finds no credential in output.
+This milestone is complete when CLI help is internally consistent, the public completion
+command works for all three shells, version output contains both package version and build
+revision, every documented exit path is tested, and a secret-fixture scan finds no
+credential in output.
 
 
 ### Milestone 2: Write reference documentation and complete examples
@@ -135,7 +171,7 @@ Create:
   name/path restriction, reference rule, binding precedence, safety marker, and compatible
   evolution rule;
 - `docs/reference/cli.md` with command synopsis, input/output channels, exit behavior,
-  passthrough denylist, artifacts, reports, and completion generation;
+  audited passthrough allowlist, artifacts, reports, and completion generation;
 - `docs/architecture.md` with the opaque-fragment boundary and the flow from workspace to
   expanded run to rendered Hurl to external process;
 - `docs/security.md` with secret sources, temp permissions, cleanup, process argv, Hurl's
@@ -173,7 +209,9 @@ Create `flake.module.nix` rather than editing Seihou-managed `nix/haskell.nix`. 
 Confirm the pinned nixpkgs Hurl is at least 8.0.0 and that both `hurl` and `hurlfmt` appear
 in `nix develop`. If nixpkgs has a later major, let `doctor` display the untested-major
 warning and pin only if an actual compatibility test fails. Do not edit generated Nix files
-for project-specific tools.
+for project-specific tools. Extend the project module or package override to pass a stable
+`GIT_HASH` CPP literal to the executable when `.git` is absent; keep the local `githash`
+path as the development fallback and test both rendering paths.
 
 Fix the Cabal sdist warnings by giving each package source tree its own included license and
 changelog file, or by another Cabal-supported layout proven by `cabal sdist all`. Keep the
@@ -188,10 +226,11 @@ must not hide arguments needed for debugging. Add `.github/workflows/ci.yml` usi
 repository's Nix toolchain and cache settings to run the same `just check` on Linux. Do not
 put credentials in the workflow; real external-vendor tests are not part of CI.
 
-`just check` must run formatting check, `nix flake check`, Cabal build/tests, schema
-compatibility fixtures, both local examples, and `cabal sdist all`. Inspect each tarball
-with `tar -tf` to prove it contains required license/source/schema documentation and no
-secret fixtures, build outputs, report outputs, or personal absolute paths.
+`just check` must run formatting checks, `hurlfmt --check` over every checked-in Hurl
+fragment and example, `nix flake check`, Cabal build/tests, schema compatibility fixtures,
+both local examples, and `cabal sdist all`. Inspect each tarball with `tar -tf` to prove it
+contains required license/source/schema documentation and no secret fixtures, build
+outputs, report outputs, or personal absolute paths.
 
 This milestone is complete when a clean checkout passes the same local and CI command and
 both source distributions can be unpacked and built without reaching outside their source
@@ -243,10 +282,13 @@ Run commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
 2. Generate completion smoke tests:
 
    ```bash
-   cabal run hurl-workbench -- --bash-completion-script hurl-workbench
-   cabal run hurl-workbench -- --zsh-completion-script hurl-workbench
-   cabal run hurl-workbench -- --fish-completion-script hurl-workbench
+   cabal run hurl-workbench -- completions bash
+   cabal run hurl-workbench -- completions zsh
+   cabal run hurl-workbench -- completions fish
    ```
+
+   Also test the underlying optparse-applicative protocol directly so an upstream change
+   cannot silently break the public wrapper.
 
 3. Run the canonical full check:
 
@@ -290,8 +332,8 @@ Run commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
 
 - a clean Nix shell contains GHC 9.12.4, Hurl/Hurlfmt 8.x or a tested compatible later
   version, and all developer tools;
-- every CLI command has accurate help, completion, redacted diagnostics, and tested exit
-  behavior;
+- every CLI command has accurate help, grouped options, completion, revision-aware version
+  output, redacted diagnostics, and tested exit behavior;
 - both motivating examples run entirely against local fixture services;
 - docs specify the opaque-Hurl architecture, workspace schema, precedence, safety, and
   security limitations without relying on these plans;
@@ -322,8 +364,21 @@ EP-6 does not introduce a new domain layer. It owns the final CLI error/help sur
 documentation set, Nix customization, Justfile, CI workflow, package metadata, and release
 acceptance. All functional behavior must flow through EP-1 through EP-5 interfaces.
 
-The only required development-shell addition is `pkgs.hurl`; Hurl remains an external
-binary. Keep Haskell bounds compatible with GHC 9.12.4 and verify every direct dependency
-against Mori-located source, the current Hackage registry, and upstream release tags before
-finalizing them. Do not add a documentation generator, installer framework, telemetry,
-networked CI test service, or publishing credential.
+The required development-shell addition is `pkgs.hurl`; Hurl remains an external binary.
+Use `githash >=0.1.7 && <0.2` and `terminal-size >=0.3.4 && <0.4` if the implementation
+needs the terminal-width adapter described above. Mori has no registered source for either
+package; these bounds and APIs were therefore checked against Hackage and their upstream
+release tags after the required Mori search. Keep all Haskell bounds compatible with GHC
+9.12.4 and perform the same verification for every direct dependency before finalizing
+them. Do not add a documentation generator, installer framework, telemetry, networked CI
+test service, or publishing credential.
+
+
+## Revision Note
+
+
+2026-09-18: Reviewed the release plan before implementation. The public CLI now has an
+explicit completion subcommand, option-group and terminal-aware help requirements, and a
+package-version-plus-Git-revision contract. Added the haskell-jitsurei CLI references,
+Hurlfmt checks for checked-in resources, and Nix revision injection so the release surface
+is specified rather than inferred from optparse-applicative internals.
