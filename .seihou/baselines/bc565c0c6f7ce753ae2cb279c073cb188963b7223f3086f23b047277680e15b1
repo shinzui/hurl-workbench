@@ -1,5 +1,5 @@
 {
-  description = "hurl-workbench";
+  description = "A Haskell-powered Hurl workbench for composing, exploring, executing, and testing reusable API workflows without duplicating request templates.";
 
   inputs = {
     haskell-nix-dev.url = "github:shinzui/haskell-nix-dev";
