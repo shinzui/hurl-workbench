@@ -60,7 +60,9 @@ caching, arbitrary shell hooks, and transparent sharing of captured state betwee
 independent matrix cases. External helpers may prepare standard Hurl variable or secret
 files before invoking the workbench.
 
-The initiative is accepted when both bundled examples pass end to end with Hurl 8.x,
+Before implementation begins, the jobs, feature acceptance statements, and shared public
+contracts must pass the profile-governed review in `docs/use-cases/`. The initiative is
+accepted when both bundled examples pass end to end with Hurl 8.x,
 the vendor example demonstrates a single OAuth fragment reused by multiple parameterized
 queries, the integration example manages a local service and emits a report, and
 `nix flake check`, `nix fmt -- --check`, `cabal build all`, and `cabal test all` succeed.
@@ -70,6 +72,7 @@ queries, the integration example manages a local service and emits a report, and
 
 
 The work is divided by durable responsibility rather than by individual CLI command.
+EP-7 first owns the use-case and acceptance-contract review that gates implementation.
 EP-1 owns the configuration boundary and normalized types. EP-2 owns pure composition and
 rendering. EP-3 owns one secure, faithful Hurl invocation. EP-4 builds higher-level
 exploration and repetition on that single-run primitive. EP-5 adds lifecycle orchestration
@@ -79,7 +82,9 @@ then adds processes and services only after their inputs are stable. EP-5 now ha
 dependency on EP-4 because its final suite API consumes EP-4's selection, preparation,
 batch-result, and safety types; partial overlap during implementation is not a substitute
 for a child plan being independently implementable once its declared hard dependencies
-are complete.
+are complete. EP-1 has a hard governance dependency on EP-7: this is not a compile
+dependency, but it enforces the explicit entry criterion that the user scenarios validate
+the proposed contracts before product code fixes them in place.
 
 A single all-in-one ExecPlan was rejected because it would mix schema design, pure
 composition, secret handling, process control, concurrency, service lifecycle, reports,
@@ -111,7 +116,8 @@ mutations and special perimeter cases.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | None | None | Not Started |
+| EP-7 | Document and Ratify Hurl Workbench Use Cases | `docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md` | None | None | Complete |
+| EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Not Started |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Not Started |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Not Started |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |
@@ -127,6 +133,7 @@ inherits intention `intention_01kytnndmnef28f9ksadwfac7h` in its frontmatter.
 
 ```mermaid
 flowchart LR
+    EP7[EP-7 Use-case contract gate] --> EP1[EP-1 Workspace contract]
     EP1[EP-1 Workspace contract] --> EP2[EP-2 Composition and rendering]
     EP2 --> EP3[EP-3 Secure execution]
     EP3 --> EP4[EP-4 Recipes and matrices]
@@ -135,7 +142,9 @@ flowchart LR
     EP5 --> EP6
 ```
 
-EP-2 requires EP-1 because fragment and workflow identities, paths, and parameter
+EP-1 requires EP-7 as a governance entry criterion because the jobs and acceptance
+statements must ratify its public types before implementation. EP-2 requires EP-1 because
+fragment and workflow identities, paths, and parameter
 contracts must be stable before composition can be implemented. EP-3 requires EP-2
 because it executes a rendered workflow and must not duplicate rendering logic. EP-4
 requires EP-3 because every recipe or matrix case reduces to the same tested single-run
@@ -150,6 +159,7 @@ the actual product.
 
 | Plans | Shared artifact | Owner | Consumption rule |
 |---|---|---|---|
+| EP-7 and all implementation plans | `docs/use-cases/` jobs, features, and acceptance-contract maps | EP-7 | A shared API or acceptance change must still satisfy the mapped use cases, or update the affected use case and explain the changed user contract before implementation. A `validated` use case with `planned` features claims a ratified requirement, not delivery. |
 | EP-1 through EP-6 | `schema/package.dhall`, `schema/*.dhall`, category-specific name newtypes, `WorkspaceContext`, and opaque `ValidatedWorkspace` | EP-1 | Later plans accept the validated value rather than loose `WorkspaceRoot`/`Workspace` pairs. Schema changes go through record completion defaults and compatibility fixtures. |
 | EP-1 through EP-5 | Static entity and cross-reference validation | EP-1 | EP-1 validates every schema category and builds all indexes without importing later feature modules. EP-2 adds a separate syntax-validation pass; EP-4/EP-5 resolvers retain defense-in-depth checks but do not create a dependency cycle back into `validateWorkspace`. |
 | EP-2 through EP-5 | `ResolvedWorkflow`, fragment line spans, and `RenderedWorkflow` | EP-2 | Only the composer constructs rendered Hurl. Executors treat it as immutable UTF-8 text plus workspace-root and source-fragment provenance. |
@@ -168,7 +178,9 @@ constraint concrete must create or update the corresponding ADR.
 ## Progress
 
 
-(No implementation work has started.)
+- [x] (2026-09-18 18:40Z) EP-7 documented and strictly validated the initial use-case
+  contract set. No product implementation has started.
+- [ ] EP-1 through EP-6 remain not started.
 
 
 ## Surprises & Discoveries
@@ -198,6 +210,11 @@ constraint concrete must create or update the corresponding ADR.
 - Observation: EP-5's final milestones consume types owned by EP-4, so the former soft
   dependency made EP-5 non-implementable under the MasterPlan contract. It is now a hard
   dependency.
+
+- Observation: The OKF use-case profile distinguishes scenario maturity from feature
+  delivery, so the evidence-backed jobs can be `validated` while every implementation
+  slice remains truthfully `planned`.
+  Evidence: `mori://shinzui/okf-profiles/profiles/use-cases`, version 0.15.0.
 
 
 ## Decision Log
@@ -253,11 +270,18 @@ constraint concrete must create or update the corresponding ADR.
   planned CLI and live Hurl examples directly match those maintained standards.
   Date: 2026-09-18
 
+- Decision: Make the profile-governed use-case bundle a hard governance dependency of EP-1.
+  Rationale: Jobs, observable outcomes, and feature acceptance now exercise the proposed
+  APIs before implementation; a compile-only dependency would not enforce that review gate.
+  Date: 2026-09-18
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+The pre-implementation contract review now has four structured, evidence-backed use cases
+covering the initiative's primary workflows. Product implementation remains pending in
+EP-1 through EP-6; their APIs must preserve the ratified acceptance contracts.
 
 
 ## Revision Note
@@ -268,3 +292,7 @@ the MasterPlan and ExecPlan contracts, and the applicable Haskell Jitsurei stand
 Tightened the shared workspace and execution APIs, made EP-4 a hard dependency of EP-5,
 recorded Hurl environment/value semantics, and assigned previously implicit shared
 artifacts to a single owning plan before implementation begins.
+
+2026-09-18: Added EP-7 and the OKF use-case bundle as the initiative's pre-implementation
+contract gate. Traced four evidence-backed jobs through planned features to the public APIs
+and owning ExecPlans, then made EP-7 a governance dependency of EP-1.

@@ -36,6 +36,11 @@ user can also run `hurl-workbench list` to inspect the named objects in the work
 The workspace describes existing Hurl source; it does not describe HTTP methods, URLs,
 bodies, captures, or assertions. Those remain in `.hurl` files.
 
+Implementation begins only after the completed use-case contract gate in
+`docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md`. In particular, EP-1 must
+satisfy the typed-workspace acceptance in UC-1 without weakening the parameterized,
+integration-suite, or raw-diagnostic scenarios in UC-2 through UC-4.
+
 
 ## Progress
 
@@ -128,6 +133,10 @@ workflow. A *matrix* applies a recipe to multiple binding sets. A *service* desc
 managed process. A *suite* is a named collection of workflow, recipe, or matrix runs.
 Later plans implement the behavior of these higher-level values, but this plan defines and
 validates their shared representation once.
+
+The ratified user requirements are in `docs/use-cases/`. They are inputs to this plan, not
+post-hoc documentation: changes to the schema or normalized types must remain traceable to
+their feature acceptance statements.
 
 
 ## Plan of Work
@@ -490,3 +499,6 @@ library in this plan.
 workspace/root pair with category-specific names and an opaque validated workspace,
 specified Hurl value-literal semantics, and incorporated the applicable Haskell Jitsurei
 core and CLI conventions before implementation.
+
+2026-09-18: Added the completed EP-7 use-case bundle as EP-1's governance dependency and
+made its feature acceptance statements explicit inputs to workspace contract design.

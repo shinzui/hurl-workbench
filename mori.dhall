@@ -19,4 +19,14 @@ in  Schema.Project::{
         , github = Some "shinzui/hurl-workbench"
         }
       ]
+    , okfBundles =
+      [ Schema.OkfBundle::{
+        , name = "use-cases"
+        , path = "docs/use-cases"
+        , profile = Some "docs/use-cases/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "JTBD use cases validating Hurl Workbench APIs and acceptance contracts"
+        }
+      ]
     }
