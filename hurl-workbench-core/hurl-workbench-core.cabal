@@ -38,9 +38,48 @@ library
   hs-source-dirs: src
   exposed-modules:
     HurlWorkbench.Prelude
+    HurlWorkbench.Workspace.Context
+    HurlWorkbench.Workspace.Decode
+    HurlWorkbench.Workspace.Discover
+    HurlWorkbench.Workspace.Error
+    HurlWorkbench.Workspace.Types
+    HurlWorkbench.Workspace.Validate
+
+  other-modules:
+    HurlWorkbench.Workspace.Context.Internal
 
   build-depends:
     base >=4.20 && <5,
-    generic-lens,
+    bytestring >=0.11 && <0.13,
+    containers >=0.6 && <0.8,
+    dhall ^>=1.42,
+    directory ^>=1.3,
+    filepath >=1.4 && <1.6,
+    generic-lens ^>=2.3,
     lens ^>=5.3,
     text ^>=2.1,
+
+test-suite hurl-workbench-core-test
+  import: common-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    HurlWorkbench.Workspace.NameSafetyTest
+    HurlWorkbench.Workspace.WorkspaceTest
+
+  ghc-options:
+    -threaded
+
+  build-depends:
+    base >=4.20 && <5,
+    containers,
+    directory,
+    filepath,
+    generic-lens,
+    hurl-workbench-core,
+    lens,
+    tasty ^>=1.5,
+    tasty-hunit ^>=0.10,
+    temporary ^>=1.3,
+    text,

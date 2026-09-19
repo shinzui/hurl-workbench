@@ -4,12 +4,13 @@
 --   single `hello` subcommand. Replace `runCommand` with your real
 --   subcommand parser when you grow past the bootstrap.
 module HurlWorkbench.Cli
-  ( runCli
-  ) where
+  ( runCli,
+  )
+where
 
 import Data.Foldable (traverse_)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Options.Applicative
 
 -- | A subcommand of the hurl-workbench CLI.
@@ -29,7 +30,7 @@ data Options = Options
 -- | Parse argv and dispatch to the chosen subcommand.
 runCli :: IO ()
 runCli = do
-  Options{cmd} <- execParser parserInfo
+  Options {cmd} <- execParser parserInfo
   runCommand cmd
 
 parserInfo :: ParserInfo Options

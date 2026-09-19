@@ -12,6 +12,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Reviewed and cascaded pre-implementation API, dependency, security, and Haskell Jitsurei corrections across the initiative."
+    - model: "claude-opus-5"
+      harness: "claude-code"
+      at: 2026-09-19T13:41:53Z
+      mode: "implement"
+      note: "Coordinated EP-1 implementation and registry updates."
 ---
 
 # Build Hurl Workbench for Reusable API Workflows
@@ -117,7 +122,7 @@ mutations and special perimeter cases.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-7 | Document and Ratify Hurl Workbench Use Cases | `docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md` | None | None | Complete |
-| EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Not Started |
+| EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | In Progress |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Not Started |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Not Started |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |

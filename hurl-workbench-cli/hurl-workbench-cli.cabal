@@ -41,8 +41,8 @@ library
 
   build-depends:
     base >=4.20 && <5,
-    hurl-workbench-core,
     generic-lens,
+    hurl-workbench-core,
     lens ^>=5.3,
     optparse-applicative >=0.18,
     text ^>=2.1,

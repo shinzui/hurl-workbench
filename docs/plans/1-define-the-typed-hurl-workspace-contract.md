@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Tightened workspace decoding, validation, name, value, and Haskell Jitsurei contracts before implementation."
+    - model: "claude-opus-5"
+      harness: "claude-code"
+      at: 2026-09-19T13:41:53Z
+      mode: "implement"
+      note: "Implemented the Dhall schema, typed workspace model, discovery, validation, and validate/list CLI."
 ---
 
 # Define the Typed Hurl Workspace Contract
@@ -45,7 +50,14 @@ integration-suite, or raw-diagnostic scenarios in UC-2 through UC-4.
 ## Progress
 
 
-(No implementation work has started.)
+- [x] (2026-09-19 13:45Z) Rechecked released versions: `dhall` 1.42.3,
+  `optparse-applicative` 0.19.0.0, `tasty` 1.5.4, `tasty-hunit` 0.10.2, `temporary` 1.3.
+- [x] (2026-09-19 14:10Z) Milestone 1: published `schema/package.dhall` with one module
+  per record or union, rewrote `HurlWorkbench.Prelude` per the custom-prelude pattern, and
+  added `HurlWorkbench.Workspace.{Types,Error,Decode,Context}`.
+- [x] (2026-09-19 14:25Z) Milestone 2: added `HurlWorkbench.Workspace.{Discover,Validate}`,
+  nine fixture workspaces, and the `hurl-workbench-core-test` Tasty suite (22 tests pass).
+- [ ] Milestone 3: replace the placeholder CLI with `validate` and `list`.
 
 
 ## Surprises & Discoveries
