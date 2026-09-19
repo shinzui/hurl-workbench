@@ -122,7 +122,7 @@ mutations and special perimeter cases.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-7 | Document and Ratify Hurl Workbench Use Cases | `docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md` | None | None | Complete |
-| EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | In Progress |
+| EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Complete |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Not Started |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Not Started |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |
@@ -184,8 +184,11 @@ constraint concrete must create or update the corresponding ADR.
 
 
 - [x] (2026-09-18 18:40Z) EP-7 documented and strictly validated the initial use-case
-  contract set. No product implementation has started.
-- [ ] EP-1 through EP-6 remain not started.
+  contract set.
+- [x] (2026-09-19 15:10Z) EP-1 delivered the versioned Dhall schema, typed workspace model,
+  discovery, accumulated validation, the opaque `ValidatedWorkspace`, and the `validate`
+  and `list` commands; 33 tests pass across both packages.
+- [ ] EP-2 through EP-6 remain not started. EP-2 is now implementable.
 
 
 ## Surprises & Discoveries
@@ -220,6 +223,29 @@ constraint concrete must create or update the corresponding ADR.
   delivery, so the evidence-backed jobs can be `validated` while every implementation
   slice remains truthfully `planned`.
   Evidence: `mori://shinzui/okf-profiles/profiles/use-cases`, version 0.15.0.
+
+- Observation: EP-1's concrete public surface differs from the child plans' prose in a
+  few names later plans must use. A parameter's committed value is `defaultValue` (Dhall
+  and Haskell; `default` is a Haskell keyword). Load errors live in
+  `HurlWorkbench.Workspace.Error.WorkspaceError`. `ValidatedWorkspace` is consumed through
+  `HurlWorkbench.Workspace.Context` accessors: `validatedRoot`, `validatedManifestPath`,
+  `validatedWorkspace`, per-category `validated*` maps, typed `lookup*` functions, and
+  `lookupFragmentFile` for canonical, root-contained fragment paths (EP-2 should read
+  fragments through it rather than re-joining paths). Haskell constructors for Dhall unions
+  are `HttpReadinessCheck`/`CommandReadinessCheck` for `Readiness` and
+  `WorkflowRun`/`RecipeRun`/`MatrixRun` for `RunReference`. Environment bindings are
+  `{ variable, parameter }`. `Recipe.safety` is required with no default.
+  Evidence: `docs/plans/1-define-the-typed-hurl-workspace-contract.md`, Interfaces and
+  Dependencies and Decision Log.
+
+- Observation: EP-1 uses exit status 1 for every workbench failure (discovery, Dhall,
+  validation), distinguished by message prefix (`error:` versus `Invalid workspace:`).
+  EP-3 still owns exact Hurl exit propagation and may introduce a distinct status scheme for
+  workbench failures if it documents it in an ADR.
+
+- Observation: The repository had no ADR corpus and declares no profiled ADR bundle, so
+  EP-1 started `docs/adr/` as plain Markdown named `<N>-<slug>.md`. Later plans should
+  continue that convention (next ADR is 3) unless an OKF ADR bundle is adopted separately.
 
 
 ## Decision Log
@@ -285,8 +311,11 @@ constraint concrete must create or update the corresponding ADR.
 
 
 The pre-implementation contract review now has four structured, evidence-backed use cases
-covering the initiative's primary workflows. Product implementation remains pending in
-EP-1 through EP-6; their APIs must preserve the ratified acceptance contracts.
+covering the initiative's primary workflows. EP-1 is complete: the workspace contract
+(schema, typed model, validation boundary) is implemented and recorded in
+`docs/adr/1-versioned-dhall-workspace-schema.md` and
+`docs/adr/2-validated-workspace-boundary.md`. EP-2 through EP-6 remain pending; their
+APIs must preserve the ratified acceptance contracts.
 
 
 ## Revision Note
@@ -301,3 +330,7 @@ artifacts to a single owning plan before implementation begins.
 2026-09-18: Added EP-7 and the OKF use-case bundle as the initiative's pre-implementation
 contract gate. Traced four evidence-backed jobs through planned features to the public APIs
 and owning ExecPlans, then made EP-7 a governance dependency of EP-1.
+
+2026-09-19: Implemented EP-1, marked it Complete, recorded its concrete public names, exit
+status, and ADR convention as cross-plan discoveries, and noted EP-2 as the next
+implementable plan.

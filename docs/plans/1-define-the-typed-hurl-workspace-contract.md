@@ -57,13 +57,37 @@ integration-suite, or raw-diagnostic scenarios in UC-2 through UC-4.
   added `HurlWorkbench.Workspace.{Types,Error,Decode,Context}`.
 - [x] (2026-09-19 14:25Z) Milestone 2: added `HurlWorkbench.Workspace.{Discover,Validate}`,
   nine fixture workspaces, and the `hurl-workbench-core-test` Tasty suite (22 tests pass).
-- [ ] Milestone 3: replace the placeholder CLI with `validate` and `list`.
+- [x] (2026-09-19 14:55Z) Milestone 3: replaced the `hello` scaffold with
+  `HurlWorkbench.Cli.{Options,Output,Workspace,Command.Validate,Command.List}` and the
+  `hurl-workbench-cli-test` suite (11 tests pass); exercised the executable against the
+  `minimal`, `full`, `missing-reference`, and `schema-version` fixtures.
+- [x] (2026-09-19 15:05Z) Created `docs/adr/1-versioned-dhall-workspace-schema.md` and
+  `docs/adr/2-validated-workspace-boundary.md`; updated the README run instructions.
 
 
 ## Surprises & Discoveries
 
 
-(None yet.)
+- Observation: Hurl 8.0.1 trims the whole variables-file line but not the value after the
+  first `=`, so a leading space in a value survives while a trailing one is lost.
+  `HurlValueLiteral` still rejects both, which is stricter than necessary but symmetric and
+  easy to explain.
+  Evidence: a file containing `b= x=y ` rendered `{{b}}` as ` x=y` with `hurl --verbose`.
+
+- Observation: With `-fdefer-type-errors`, GHC floats the evidence for a deferred type
+  error to the enclosing top-level binding, so an ill-typed expression written inline in a
+  `do` block throws before the surrounding `try` runs. The name-safety tests therefore put
+  each ill-typed lookup in its own top-level binding.
+  Evidence: a scratch program printed nothing and died with an uncaught `TypeError` until
+  the expression moved to a top-level binding, after which `try` caught it.
+
+- Observation: Dhall renders type errors with ANSI color escapes (`ESC[1;31mError`), which
+  are noise when stderr is redirected. `HurlWorkbench.Workspace.Decode` strips CSI
+  sequences from every rendered Dhall exception, and a test asserts no `ESC` remains.
+
+- Observation: `Control.Lens` (re-exported by the prelude) exports `argument`, which clashes
+  with `Options.Applicative.argument`. Following the custom-prelude rule, the parser module
+  hides it at the prelude import rather than qualifying the other import.
 
 
 ## Decision Log
@@ -102,11 +126,96 @@ integration-suite, or raw-diagnostic scenarios in UC-2 through UC-4.
   transport.
   Date: 2026-09-18
 
+- Decision: Decode by parsing, resolving, and type-checking the manifest, reading
+  `schemaVersion` from the normalized record, and only then checking the expected type and
+  extracting, instead of calling `Dhall.inputFile Dhall.auto` directly.
+  Rationale: A manifest for a future schema would otherwise fail with a long type mismatch;
+  this ordering reports the version skew in one sentence while keeping the same
+  root-directory import semantics as `inputFile` (settings rooted at the manifest's
+  directory, `sourceName` set to the manifest path).
+  Date: 2026-09-19
+
+- Decision: Derive `FromDhall` in `HurlWorkbench.Workspace.Types` next to each type, and put
+  `WorkspaceError` in a separate `HurlWorkbench.Workspace.Error` module.
+  Rationale: Instances beside their types avoid orphans; a separate error module lets
+  `Decode`, `Discover`, and `Context` share the error type without import cycles.
+  `Decode` owns only the decoding pipeline.
+  Date: 2026-09-19
+
+- Decision: Name the parameter's committed value `defaultValue` in both Dhall and Haskell,
+  keep `Recipe.safety` and `Workspace.schemaVersion` required with no default, give
+  readiness intervals, timeouts, and `shutdownTimeoutSeconds` defaults, name environment
+  binding fields `variable` and `parameter`, and add an optional `description` to services.
+  Rationale: `default` is a Haskell keyword and collides visually with the completion
+  record's `default`; a defaulted safety class would let a mutating recipe be treated as
+  read-only; the other defaults are conventional and keep manifests short.
+  Date: 2026-09-19
+
+- Decision: Keep list-typed fields (`Workflow.fragments`, `Matrix.cases`, `Suite.runs`) as
+  Haskell lists and enforce non-emptiness in validation rather than decoding `NonEmpty`.
+  Rationale: Dhall's `NonEmpty` decoder fails during extraction without an entity location
+  and aborts before other issues are gathered; validation reports them with locations and
+  alongside every other issue.
+  Date: 2026-09-19
+
+- Decision: Also validate environment variable names (`[A-Za-z_][A-Za-z0-9_]*`) for
+  parameter `environment` sources and service environment bindings, reject an unknown
+  parameter only once (not also as "not declared by workflow"), and allow a workflow to
+  list the same fragment more than once.
+  Rationale: Invalid environment names can never be supplied by a shell; duplicate issues
+  for one mistake are noise; repeating an entry (for example a polling request) is a
+  legitimate composition.
+  Date: 2026-09-19
+
+- Decision: Every workbench failure in this plan (discovery, Dhall, validation) exits with
+  status 1 and a message on stderr; `list` prints tables in declaration order, shows
+  committed plain bindings and defaults, names environment variables without reading
+  them, and prints `(none)` for an empty category.
+  Rationale: No Hurl process runs yet, so there is no child status to preserve; EP-3 owns
+  exit-status propagation for runs. Failures remain distinguishable by message category
+  (`error:` for load failures, `Invalid workspace:` for validation reports).
+  Date: 2026-09-19
+
+- Decision: Start `docs/adr/` as plain Markdown files named `<N>-<slug>.md` without OKF
+  frontmatter.
+  Rationale: The repository had no ADR corpus and `mori.dhall` declares no profiled ADR
+  bundle; the shared ADR guide forbids inventing OKF identity as an incidental edit. The
+  naming mirrors `docs/plans/`.
+  Date: 2026-09-19
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+EP-1 is complete. A user can write `hurl-workbench.dhall` against `schema/package.dhall`,
+run `hurl-workbench validate` from any subdirectory (or with `--workspace FILE`), and get
+either the manifest path with entity counts or every semantic issue at once in stable
+order; `hurl-workbench list [CATEGORY]` prints parameters, fragments, workflows, recipes,
+matrices, services, and suites with their relationships. The `full` fixture demonstrates
+UC-1's typed-workspace acceptance: one `oauth` fragment shared by two resource workflows.
+
+Later plans consume `ValidatedWorkspace` through `HurlWorkbench.Workspace.Context`:
+`validatedRoot`, `validatedManifestPath`, `validatedWorkspace`, the per-category
+`validated*` maps, `lookup*` by typed name, and `lookupFragmentFile` for the canonical,
+root-contained fragment path. Runtime plain values must use `mkHurlValueLiteral`.
+
+Evidence at completion:
+
+```text
+$ cabal test all
+All 22 tests passed
+Test suite hurl-workbench-core-test: PASS
+All 11 tests passed
+Test suite hurl-workbench-cli-test: PASS
+```
+
+Remaining outside this plan: Hurl syntax validation of fragment contents (EP-2), execution
+and exit-status propagation (EP-3), and the pre-existing Cabal `relative-path-outside`
+packaging warnings (EP-6). Lesson: checking the schema version on the evaluated
+expression before typed decoding was cheap and makes version skew legible; it is worth
+keeping as the schema grows. Durable decisions were promoted to
+`docs/adr/1-versioned-dhall-workspace-schema.md` and
+`docs/adr/2-validated-workspace-boundary.md`.
 
 
 ## Context and Orientation
@@ -463,14 +572,34 @@ the Mori-located source and current Hackage release before choosing a workaround
 ## Interfaces and Dependencies
 
 
-At completion, these modules are public from `hurl-workbench-core`:
+At completion, these modules are public from `hurl-workbench-core` (the implementation
+added `HurlWorkbench.Workspace.Error` for `WorkspaceError`, and keeps the
+`ValidatedWorkspace` constructor in the non-exposed
+`HurlWorkbench.Workspace.Context.Internal`):
 
 ```haskell
 module HurlWorkbench.Workspace.Types
+module HurlWorkbench.Workspace.Error
 module HurlWorkbench.Workspace.Decode
 module HurlWorkbench.Workspace.Discover
 module HurlWorkbench.Workspace.Context
 module HurlWorkbench.Workspace.Validate
+```
+
+`HurlWorkbench.Workspace.Context` exports these `ValidatedWorkspace` accessors:
+
+```haskell
+validatedContext :: ValidatedWorkspace -> WorkspaceContext
+validatedManifestPath :: ValidatedWorkspace -> FilePath
+validatedRoot :: ValidatedWorkspace -> WorkspaceRoot
+validatedWorkspace :: ValidatedWorkspace -> Workspace
+validatedParameters :: ValidatedWorkspace -> Map ParameterName Parameter
+-- likewise validatedFragments, validatedWorkflows, validatedRecipes,
+-- validatedMatrices, validatedServices, validatedSuites
+lookupWorkflow :: WorkflowName -> ValidatedWorkspace -> Maybe Workflow
+-- likewise lookupParameter, lookupFragment, lookupRecipe, lookupMatrix,
+-- lookupService, lookupSuite
+lookupFragmentFile :: FragmentName -> ValidatedWorkspace -> Maybe FilePath
 ```
 
 The central interfaces are:
@@ -514,3 +643,8 @@ core and CLI conventions before implementation.
 
 2026-09-18: Added the completed EP-7 use-case bundle as EP-1's governance dependency and
 made its feature acceptance statements explicit inputs to workspace contract design.
+
+2026-09-19: Implemented all three milestones. Recorded progress, surprises, and
+implementation decisions (version-first decoding, instance placement, field naming and
+defaults, list versus `NonEmpty`, exit status, ADR convention), documented the final
+public accessors in Interfaces and Dependencies, and filled Outcomes & Retrospective.

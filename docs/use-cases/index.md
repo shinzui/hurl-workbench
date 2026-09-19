@@ -26,7 +26,7 @@ has shipped. Every initial feature remains `planned` until its owning plan recor
 
 | ID | Use case | Primary contract owners | Maturity |
 |---|---|---|---|
-| [UC-1](001-reuse-authenticated-api-workflows.md) | Reuse authenticated API workflows | EP-1, EP-2, EP-3 | validated; delivery planned |
+| [UC-1](001-reuse-authenticated-api-workflows.md) | Reuse authenticated API workflows | EP-1, EP-2, EP-3 | validated; 1 of 3 features delivered (EP-1) |
 | [UC-2](002-run-parameterized-api-scenarios.md) | Run parameterized API scenarios | EP-3, EP-4 | validated; delivery planned |
 | [UC-3](003-run-repeatable-integration-suites.md) | Run repeatable integration suites | EP-3, EP-4, EP-5 | validated; delivery planned |
 | [UC-4](004-inspect-raw-api-behavior.md) | Inspect raw API behavior | EP-2, EP-3, EP-4 | validated; delivery planned |

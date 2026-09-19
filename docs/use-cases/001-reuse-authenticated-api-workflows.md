@@ -38,7 +38,7 @@ jobs:
 features:
   - name: typed-reusable-workspace
     description: Define fragments, workflows, parameters, and secret declarations in one validated workspace.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A workspace declares one OAuth fragment and two resource fragments; validation succeeds and listing shows two workflows that reference the same OAuth fragment.
