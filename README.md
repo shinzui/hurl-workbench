@@ -35,8 +35,14 @@ Then build and run:
 
 ```bash
 cabal build all
-cabal run hurl-workbench -- hello --name world
+cabal test all
+cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/full/hurl-workbench.dhall validate
+cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/full/hurl-workbench.dhall list all
 ```
+
+A workspace is a `hurl-workbench.dhall` manifest written against the versioned
+schema in [`schema/package.dhall`](./schema/package.dhall). Without `--workspace`,
+the CLI discovers the manifest from the current directory upward.
 
 ## License
 

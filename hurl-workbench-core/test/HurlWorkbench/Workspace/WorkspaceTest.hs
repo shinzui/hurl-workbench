@@ -58,7 +58,10 @@ decodingTests =
           Text.IO.writeFile manifest "{ schemaVersion = 1, fragments = 42 }"
           result <- decodeWorkspaceFile manifest
           case result of
-            Left (DhallFailure path _) -> path @?= manifest
+            Left (DhallFailure path message) -> do
+              path @?= manifest
+              assertBool "mentions the mismatch" ("doesn't match annotation" `Text.isInfixOf` message)
+              assertBool "contains no ANSI escapes" (not ("\ESC" `Text.isInfixOf` message))
             other -> assertFailure ("expected a Dhall failure, got " <> show other)
     ]
 

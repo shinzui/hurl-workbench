@@ -68,7 +68,7 @@ decodeWorkspaceFile path = do
         Left exception -> Left (DhallFailure path (renderException exception))
         Right () -> case Dhall.toMonadic (Dhall.extract decoder normalized) of
           Right workspace -> Right workspace
-          Left errors -> Left (DhallFailure path (Text.pack (show errors)))
+          Left errors -> Left (DhallFailure path (renderException errors))
 
 -- | Find a literal @schemaVersion : Natural@ field on a normalized record.
 schemaVersionOf :: Dhall.Core.Expr Src Void -> Maybe Natural
@@ -88,5 +88,18 @@ trySync action = do
       | Just (_ :: SomeAsyncException) <- fromException exception -> throwIO exception
     other -> pure other
 
+-- | Render a library exception as plain text. Dhall colors some messages
+--   with ANSI escape sequences, which are removed so redirected output stays
+--   readable.
 renderException :: (Show e) => e -> Text
-renderException = Text.pack . show
+renderException = stripAnsi . Text.pack . show
+
+-- | Remove ANSI CSI sequences such as @ESC[1;31m@.
+stripAnsi :: Text -> Text
+stripAnsi text = case Text.breakOn "\ESC[" text of
+  (before, rest)
+    | Text.null rest -> before
+    | otherwise ->
+        let afterIntroducer = Text.drop 2 rest
+            (_, final) = Text.span (\c -> c >= ' ' && c <= '?') afterIntroducer
+         in before <> stripAnsi (Text.drop 1 final)
