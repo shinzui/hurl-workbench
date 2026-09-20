@@ -2,10 +2,12 @@
 --
 -- > hurl-workbench [--workspace FILE] validate
 -- > hurl-workbench [--workspace FILE] list [all|parameters|fragments|workflows|recipes|matrices|services|suites]
+-- > hurl-workbench [--workspace FILE] render workflow NAME [--output FILE]
 module HurlWorkbench.Cli.Options
   ( Options (..),
     GlobalOptions (..),
     Command (..),
+    RenderOptions (..),
     ListCategory (..),
     allListCategories,
     listCategoryName,
@@ -16,6 +18,7 @@ where
 
 import Data.Text qualified as Text
 import HurlWorkbench.Prelude hiding (argument)
+import HurlWorkbench.Workspace.Types (WorkflowName (..))
 import Options.Applicative
   ( Parser,
     ParserInfo,
@@ -34,6 +37,7 @@ import Options.Applicative
     optional,
     parserOptionGroup,
     progDesc,
+    strArgument,
     strOption,
     value,
     (<**>),
@@ -57,6 +61,14 @@ data GlobalOptions = GlobalOptions
 data Command
   = ValidateCommand
   | ListCommand !ListCategory
+  | RenderCommand !RenderOptions
+  deriving stock (Generic, Eq, Show)
+
+-- | Options for rendering one named workflow.
+data RenderOptions = RenderOptions
+  { workflow :: !WorkflowName,
+    output :: !(Maybe FilePath)
+  }
   deriving stock (Generic, Eq, Show)
 
 -- | Which entities @list@ prints.
@@ -137,7 +149,39 @@ commandParser =
               (ListCommand <$> listCategoryParser)
               (progDesc "List the named entities in the workspace")
           )
+        <> command
+          "render"
+          ( info
+              renderCommandParser
+              (progDesc "Compose and syntax-check inspectable Hurl source")
+          )
     )
+
+renderCommandParser :: Parser Command
+renderCommandParser =
+  hsubparser
+    ( command
+        "workflow"
+        ( info
+            (RenderCommand <$> renderOptionsParser)
+            (progDesc "Render one named workflow")
+        )
+    )
+
+renderOptionsParser :: Parser RenderOptions
+renderOptionsParser =
+  RenderOptions
+    <$> (WorkflowName . Text.pack <$> strArgument (metavar "NAME" <> help "Workflow name"))
+    <*> parserOptionGroup
+      "Output"
+      ( optional
+          ( strOption
+              ( long "output"
+                  <> metavar "FILE"
+                  <> help "Atomically replace FILE instead of writing Hurl source to stdout"
+              )
+          )
+      )
 
 listCategoryParser :: Parser ListCategory
 listCategoryParser =

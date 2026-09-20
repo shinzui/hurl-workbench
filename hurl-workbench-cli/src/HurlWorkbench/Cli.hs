@@ -2,13 +2,26 @@
 module HurlWorkbench.Cli
   ( runCli,
     runCommand,
+    runCommandWithHurlfmt,
   )
 where
 
 import HurlWorkbench.Cli.Command.List (runList)
-import HurlWorkbench.Cli.Command.Validate (runValidate)
+import HurlWorkbench.Cli.Command.Render (runRenderWith)
+import HurlWorkbench.Cli.Command.Validate (runValidateWith)
 import HurlWorkbench.Cli.Options (Command (..), GlobalOptions, Options (..), parserInfo)
 import HurlWorkbench.Cli.Output (CommandResult, emitResult)
+import HurlWorkbench.Hurl.Format
+  ( DependencyError,
+    HurlfmtCapabilities,
+    HurlfmtError,
+    WorkflowSyntaxError,
+    detectHurlfmtCapabilities,
+    validateRenderedWorkflow,
+    validateWorkspaceSyntax,
+  )
+import HurlWorkbench.Workflow.Render (RenderedWorkflow)
+import HurlWorkbench.Workspace.Context (ValidatedWorkspace)
 import Options.Applicative (execParser)
 import System.Directory (getCurrentDirectory)
 
@@ -22,6 +35,22 @@ runCli = do
 
 -- | Run a parsed command as if started in the given directory.
 runCommand :: GlobalOptions -> FilePath -> Command -> IO CommandResult
-runCommand global currentDirectory = \case
-  ValidateCommand -> runValidate global currentDirectory
+runCommand =
+  runCommandWithHurlfmt
+    detectHurlfmtCapabilities
+    validateRenderedWorkflow
+    validateWorkspaceSyntax
+
+-- | Test seam for supplying a deterministic Hurlfmt capability probe.
+runCommandWithHurlfmt ::
+  IO (Either DependencyError HurlfmtCapabilities) ->
+  (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) ->
+  (HurlfmtCapabilities -> ValidatedWorkspace -> IO (Either DependencyError [WorkflowSyntaxError])) ->
+  GlobalOptions ->
+  FilePath ->
+  Command ->
+  IO CommandResult
+runCommandWithHurlfmt detectCapabilities validateRendered validateSyntax global currentDirectory = \case
+  ValidateCommand -> runValidateWith detectCapabilities validateSyntax global currentDirectory
   ListCommand category -> runList global currentDirectory category
+  RenderCommand options -> runRenderWith detectCapabilities validateRendered global currentDirectory options
