@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Defined preparation, scheduled batch cases, bounded output, and truthful case outcomes."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-20T23:47:35Z
+      mode: "implement"
+      note: "Corrected the formatter acceptance command after EP-2 exercised the pinned treefmt CLI."
 ---
 
 # Add Recipes Matrices and Exploratory Runs
@@ -47,7 +52,10 @@ of being forced into a generic abstraction.
 ## Surprises & Discoveries
 
 
-(None yet.)
+- Observation: The repository's pinned treefmt CLI uses `--ci`, not the obsolete `--check`
+  flag, for a no-cache fail-on-change validation run. The final acceptance command in this plan
+  has been corrected to `nix fmt -- --ci`.
+  Evidence: EP-2's repository acceptance run on 2026-09-20.
 
 
 ## Decision Log
@@ -404,7 +412,7 @@ Run commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
    ```bash
    cabal build all
    cabal test all
-   nix fmt -- --check
+   nix fmt -- --ci
    ```
 
 
@@ -465,3 +473,6 @@ typed selections, defined the previously missing `PreparedRun` API, modeled skip
 pre-spawn failures explicitly, and required captured output plus a real bounded work queue
 for deterministic concurrent runs. The example acceptance now incorporates the Haskell
 Jitsurei Hurl-suite standard.
+
+2026-09-20: Replaced the unsupported treefmt `--check` flag with the pinned CLI's `--ci`
+fail-on-change mode after EP-2 exercised the repository acceptance commands.

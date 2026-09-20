@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Made rendering failures explicit and added source-span and Hurlfmt capability contracts."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-20T23:28:53Z
+      mode: "implement"
+      note: "Started EP-2 composition, syntax validation, and render-command implementation."
 ---
 
 # Compose and Render Reusable Hurl Workflows
@@ -38,13 +43,51 @@ workflow without implementing Hurl's grammar in Haskell.
 ## Progress
 
 
-(No implementation work has started.)
+- [x] (2026-09-20 23:39Z) Milestone 1: implemented workflow resolution, exact UTF-8
+  composition, inclusive fragment line spans, and focused core tests.
+- [x] (2026-09-20 23:41Z) Milestone 2: implemented Hurlfmt capability detection,
+  accumulated stable-order workspace syntax validation, and the extended `validate` command.
+- [x] (2026-09-20 23:44Z) Milestone 3: implemented exact-output `render workflow`, atomic file
+  replacement, source-fragment overwrite protection, the composition fixture, and CLI tests.
+- [x] (2026-09-20 23:48Z) Ran focused, end-to-end, and EP-2 repository acceptance checks and
+  distilled the durable composition contract into ADR 3. `cabal build all`, all 49 tests,
+  `nix fmt -- --ci`, and live Hurlfmt 8.0.1 file/stdout validation pass. The attempted
+  initiative-wide `nix flake check` exposed a pre-existing multi-package packaging failure now
+  assigned explicitly to EP-6; it does not invalidate EP-2's behavior.
 
 
 ## Surprises & Discoveries
 
 
-(None yet.)
+- Observation: Mori has no registered source project for `typed-process` or `temporary`, so
+  dependency research had to continue through the authoritative Hackage index and released source.
+  Hackage currently exposes `typed-process-0.2.13.0` and `temporary-1.3` as the latest releases;
+  their source confirms that `readProcess` captures complete stdout/stderr without lazy I/O and
+  `withSystemTempDirectory` brackets recursive cleanup. The `temporary` repository carries the
+  matching `v1.3` tag; `typed-process` upstream tags currently stop at `0.2.11.1`, so the
+  `0.2.13.0` bound is grounded in Hackage's released source rather than an inferred tag.
+  Evidence: `mori registry search typed-process`, `mori registry search temporary`, `cabal list
+  --simple-output typed-process temporary`, and the released package sources acquired with `cabal
+  get`.
+
+- Observation: `Data.Text.Encoding.decodeUtf8'` reports invalid UTF-8 but its public
+  `UnicodeException` does not expose the byte position. Rendering therefore lets `decodeUtf8'`
+  decide validity and uses a small RFC 3629 byte scanner only to locate the first invalid byte for
+  diagnostics.
+  Evidence: `mori://haskell/text/repos/text`, project-relative path
+  `text/src/Data/Text/Encoding.hs`, and the invalid-byte-offset test in
+  `hurl-workbench-core/test/HurlWorkbench/Workflow/WorkflowTest.hs`.
+
+- Observation: Hurlfmt 8.0.1 emits parse locations as `--> FILE:LINE:COLUMN`. Mapping the reported
+  line through inclusive fragment spans identifies the owning source fragment; blank separator
+  lines intentionally have no owner.
+  Evidence: the recorded-diagnostic adapter test and the installed Hurlfmt 8.0.1 probe.
+
+- Observation: The pinned treefmt CLI rejects the MasterPlan's former `nix fmt -- --check`
+  acceptance command because `--check` is not a supported flag; `nix fmt -- --ci` is the current
+  fail-on-change CI mode. The MasterPlan and affected EP-4/EP-5 validation steps were corrected
+  before final acceptance.
+  Evidence: the formatter CLI's `unknown flag: --check` output and its documented `--ci` flag.
 
 
 ## Decision Log
@@ -73,11 +116,42 @@ workflow without implementing Hurl's grammar in Haskell.
   mapped back to the owning fragment.
   Date: 2026-09-18
 
+- Decision: Keep the selected `Workflow` definition and canonical `ResolvedFragment` values in
+  `ResolvedWorkflow`, then carry those fragments into `RenderedWorkflow` beside the generated
+  source and line spans.
+  Rationale: EP-3 needs the workflow's declared parameters and workspace root, while all later
+  execution paths must reuse the already validated canonical files and provenance instead of
+  resolving names or paths again.
+  Date: 2026-09-20
+
+- Decision: Detect Hurlfmt once before validating a workspace and process workflow names in sorted
+  order, while treating a disappeared executable as one dependency failure rather than repeating it
+  for every workflow.
+  Rationale: Dependency availability is workspace-wide, but syntax failures are independent and
+  should accumulate deterministically.
+  Date: 2026-09-20
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+The implementation now resolves validated workflow names to canonical fragment files, preserves
+valid UTF-8 source exactly, inserts only the required line-feed boundaries, and records inclusive
+source spans without leaking provenance into Hurl text. Hurlfmt capability detection and syntax
+validation use `typed-process` without a shell, clean temporary input on every tested path, and
+accumulate independent workflow failures in stable order.
+
+The CLI now validates Hurl syntax after semantic validation and renders one named workflow either as
+stdout-only Hurl source or through atomic same-directory replacement. It rejects output paths that
+canonicalize to any input fragment. The checked-in `composition` fixture demonstrates an OAuth
+capture reused by a parameterized property request, and both direct piping and file-based validation
+pass with Hurlfmt 8.0.1.
+
+The durable composition boundary is recorded in
+`docs/adr/3-opaque-hurl-fragment-composition.md`. `cabal build all`, all 49 tests, the treefmt CI
+gate, and both live Hurlfmt 8.0.1 render paths pass. The MasterPlan's broader `nix flake check`
+remains blocked by the pre-existing root-package assumption now documented in EP-6, not by an
+EP-2 source, test, or dependency failure.
 
 
 ## Context and Orientation
@@ -101,9 +175,10 @@ The locally installed baseline is Hurl 8.0.1 and includes `hurlfmt`. Its `--chec
 means formatting check; `hurlfmt --out json FILE` is the suitable parse-only probe. This
 plan introduces a narrow `hurlfmt` adapter but leaves HTTP execution to EP-3.
 
-There is still no relevant local or Mori-indexed ADR. The opaque-fragment boundary is
-durable architecture; create an ADR in this plan when the implementation confirms the
-exact composition contract.
+No relevant ADR existed when this plan began. The implemented opaque-fragment boundary is now
+recorded in `docs/adr/3-opaque-hurl-fragment-composition.md`: it requires whole-entry, non-empty,
+valid UTF-8 fragments; byte-preserving minimum-separator composition; unresolved placeholders; and
+Hurlfmt as the non-shell syntax oracle.
 
 
 ## Plan of Work
@@ -116,6 +191,23 @@ Add `hurl-workbench-core/src/HurlWorkbench/Workflow/Resolve.hs` to resolve a wor
 to ordered, already validated fragment records. It must report the workflow and missing
 fragment name even though normal CLI paths validate first; library callers should not get
 partial functions.
+
+The implemented resolution records are:
+
+```haskell
+data ResolvedFragment = ResolvedFragment
+  { fragment :: !Fragment
+  , fragmentPath :: !FilePath
+  }
+  deriving stock (Generic, Eq, Show)
+
+data ResolvedWorkflow = ResolvedWorkflow
+  { workspaceRoot :: !WorkspaceRoot
+  , workflow :: !Workflow
+  , sourceFragments :: !(NonEmpty ResolvedFragment)
+  }
+  deriving stock (Generic, Eq, Show)
+```
 
 Add `hurl-workbench-core/src/HurlWorkbench/Workflow/Render.hs` with these public values.
 Every record uses strict fields, `Generic`, and explicit deriving strategies per
@@ -207,6 +299,15 @@ Map parse line/column diagnostics through `fragmentSpans` when possible. Add
 parse errors rather than stopping at the first. Extend the EP-1 `validate` command to run
 semantic validation first and syntax validation only when semantic validation succeeds.
 If `hurlfmt` is absent, return one dependency error rather than one error per workflow.
+
+The implemented workspace boundary is:
+
+```haskell
+validateWorkspaceSyntax
+  :: HurlfmtCapabilities
+  -> ValidatedWorkspace
+  -> IO (Either DependencyError [WorkflowSyntaxError])
+```
 
 Use `typed-process` 0.2.13.x for this adapter after checking its Mori/upstream source and
 Hackage release. `temporary` or the GHC/platform equivalent must provide bracketed cleanup;
@@ -332,11 +433,13 @@ Decision Log and ADR.
 ## Interfaces and Dependencies
 
 
-EP-2 owns `ResolvedWorkflow`, `RenderedFragmentSpan`, `RenderedWorkflow`,
-`HurlfmtCapabilities`, `resolveWorkflow`, `renderWorkflow`, and
-`validateRenderedWorkflow`. EP-3 and every higher-level plan must consume these interfaces
-instead of reading or concatenating fragments itself. Expected render and dependency
-failures remain in `Either`; asynchronous exceptions are never converted to domain errors.
+EP-2 owns `ResolvedFragment`, `ResolvedWorkflow`, `RenderedFragmentSpan`, `RenderedWorkflow`,
+`HurlfmtExecutable`, `HurlfmtCapabilities`, `DependencyError`, `WorkflowSyntaxError`,
+`resolveWorkflow`, `renderWorkflow`, `detectHurlfmtCapabilities`, `validateRenderedWorkflow`, and
+`validateWorkspaceSyntax`. EP-3 and every higher-level plan must consume these interfaces instead
+of reading or concatenating fragments itself or probing Hurlfmt again. Expected resolution,
+rendering, dependency, and parser failures remain in `Either`; asynchronous exceptions are never
+converted to domain errors.
 
 Use `Data.Text.Encoding.decodeUtf8'` for strict UTF-8, `Data.List.NonEmpty` for ordered
 non-empty fragments, `typed-process` with `proc` rather than `shell`, and a bracketed
@@ -350,3 +453,11 @@ template substitution library, formatter, or HTTP client.
 2026-09-18: Updated composition to consume the opaque validated workspace and typed
 workflow names, made render failures explicit, assigned Hurlfmt capability ownership to
 EP-2, and added fragment line-span provenance so parse diagnostics identify their source.
+
+2026-09-20: Implemented all three milestones, added the accepted opaque-fragment ADR and
+composition fixture, and recorded dependency/version, UTF-8-offset, and Hurlfmt-diagnostic
+discoveries. Final repository-wide acceptance checks remain before the plan is marked complete.
+
+2026-09-20: Completed EP-2 acceptance with 49 passing tests, a clean Cabal build and treefmt CI
+gate, and live Hurlfmt file/stdout pipelines. Routed the separately discovered multi-package Nix
+default failure to EP-6 and corrected obsolete treefmt commands in future plans.

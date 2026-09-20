@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Specified Haskell Jitsurei-aligned help, completion, version, Hurlfmt, and release contracts."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-20T23:49:02Z
+      mode: "implement"
+      note: "Recorded the multi-package Nix default failure discovered during EP-2 acceptance."
 ---
 
 # Harden Document and Package the Workbench
@@ -43,7 +48,13 @@ integration, both examples, schema compatibility, and package contents.
 ## Surprises & Discoveries
 
 
-(None yet.)
+- Observation: `nix flake check` currently fails before building the application because the
+  generated default package calls `callCabal2nix` on the repository root, where there is neither a
+  `.cabal` file nor `package.yaml`. The actual Cabal packages live in `hurl-workbench-core/` and
+  `hurl-workbench-cli/`. Milestone 3 must replace that single-root package assumption with a
+  multi-package-aware default output before the initiative-wide Nix gate can pass.
+  Evidence: EP-2's 2026-09-20 `nix flake check` failed in
+  `cabal2nix-hurl-workbench.drv` with “Found neither a .cabal file nor package.yaml.”
 
 
 ## Decision Log
@@ -92,7 +103,9 @@ The current template pins GHC 9.12.4 through `nix/haskell.nix`. That file is man
 Seihou and explicitly directs project customizations to a new `flake.module.nix` using
 `haskellProject.extraDevPackages`. The initial two Cabal packages refer to `../LICENSE` and
 `../CHANGELOG.md`, which makes `cabal build` warn that those files are outside each package
-source tree and will not work in sdists. Resolve that packaging issue here.
+source tree and will not work in sdists. The generated default Nix package also assumes one root
+Cabal file and currently fails before evaluation can build either package. Resolve both packaging
+issues here without editing the Seihou-managed module.
 
 The repository has no CI workflow yet. `README.md` still describes the placeholder `hello`
 command. `CHANGELOG.md` is a template. No release should be advertised until these are
@@ -212,6 +225,12 @@ warning and pin only if an actual compatibility test fails. Do not edit generate
 for project-specific tools. Extend the project module or package override to pass a stable
 `GIT_HASH` CPP literal to the executable when `.git` is absent; keep the local `githash`
 path as the development fallback and test both rendering paths.
+
+Replace the generated single-root `packages.default` assumption through the supported project
+customization mechanism so the default output builds the CLI package together with its local core
+dependency. Prove the fix first with `nix build .#packages.aarch64-darwin.default` (or the current
+host system's equivalent) and then with `nix flake check`; do not point `callCabal2nix` at the
+repository root while it has no root Cabal package.
 
 Fix the Cabal sdist warnings by giving each package source tree its own included license and
 changelog file, or by another Cabal-supported layout proven by `cabal sdist all`. Keep the
@@ -382,3 +401,6 @@ explicit completion subcommand, option-group and terminal-aware help requirement
 package-version-plus-Git-revision contract. Added the haskell-jitsurei CLI references,
 Hurlfmt checks for checked-in resources, and Nix revision injection so the release surface
 is specified rather than inferred from optparse-applicative internals.
+
+2026-09-20: Recorded the existing multi-package Nix failure found during EP-2 acceptance and made
+repairing the generated single-root default package assumption an explicit Milestone 3 obligation.

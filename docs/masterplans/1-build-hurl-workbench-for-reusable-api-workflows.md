@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-19T13:41:53Z
       mode: "implement"
       note: "Coordinated EP-1 implementation and registry updates."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-20T23:27:16Z
+      mode: "implement"
+      note: "Started EP-2 coordination and implementation."
 ---
 
 # Build Hurl Workbench for Reusable API Workflows
@@ -70,7 +75,7 @@ contracts must pass the profile-governed review in `docs/use-cases/`. The initia
 accepted when both bundled examples pass end to end with Hurl 8.x,
 the vendor example demonstrates a single OAuth fragment reused by multiple parameterized
 queries, the integration example manages a local service and emits a report, and
-`nix flake check`, `nix fmt -- --check`, `cabal build all`, and `cabal test all` succeed.
+`nix flake check`, `nix fmt -- --ci`, `cabal build all`, and `cabal test all` succeed.
 
 
 ## Decomposition Strategy
@@ -123,7 +128,7 @@ mutations and special perimeter cases.
 |---|-------|------|-----------|-----------|--------|
 | EP-7 | Document and Ratify Hurl Workbench Use Cases | `docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md` | None | None | Complete |
 | EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Complete |
-| EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Not Started |
+| EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Not Started |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Not Started |
@@ -188,7 +193,12 @@ constraint concrete must create or update the corresponding ADR.
 - [x] (2026-09-19 15:10Z) EP-1 delivered the versioned Dhall schema, typed workspace model,
   discovery, accumulated validation, the opaque `ValidatedWorkspace`, and the `validate`
   and `list` commands; 33 tests pass across both packages.
-- [ ] EP-2 through EP-6 remain not started. EP-2 is now implementable.
+- [x] (2026-09-20 23:48Z) EP-2 delivered canonical workflow resolution, deterministic opaque
+  fragment composition, line-span provenance, Hurlfmt syntax validation, and exact stdout or
+  atomic-file rendering; 49 tests pass across both packages and the live Hurlfmt 8.0.1 pipelines
+  succeed.
+- [ ] EP-3 through EP-6 remain not started. EP-3 is now implementable. The initiative-wide Nix
+  gate also has a pre-existing multi-package default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries
@@ -246,6 +256,33 @@ constraint concrete must create or update the corresponding ADR.
 - Observation: The repository had no ADR corpus and declares no profiled ADR bundle, so
   EP-1 started `docs/adr/` as plain Markdown named `<N>-<slug>.md`. Later plans should
   continue that convention (next ADR is 3) unless an OKF ADR bundle is adopted separately.
+
+- Observation: The pinned treefmt CLI does not accept `--check`; its CI-mode equivalent is
+  `--ci`, which enables no-cache and fail-on-change behavior. The initiative acceptance command
+  and the affected future child plans now use `nix fmt -- --ci`.
+  Evidence: `nix fmt -- --check` exits with “unknown flag: --check”, while the same CLI help
+  documents `--ci` and `--fail-on-change`.
+
+- Observation: The current generated Nix default package assumes a root Cabal package, but this
+  repository contains two packages only in subdirectories. Consequently `nix flake check` fails in
+  `cabal2nix-hurl-workbench.drv` before building EP-2, while direct `cabal build all`, `cabal test
+  all`, and the treefmt CI gate pass. EP-6 now explicitly owns replacing that single-root assumption
+  with a multi-package-aware default output.
+  Evidence: `nix flake check` reports “Found neither a .cabal file nor package.yaml”; the package
+  files are `hurl-workbench-core/hurl-workbench-core.cabal` and
+  `hurl-workbench-cli/hurl-workbench-cli.cabal`.
+
+- Observation: EP-2's concrete shared surface is
+  `HurlWorkbench.Workflow.Resolve.{ResolvedFragment,ResolvedWorkflow,resolveWorkflow}`,
+  `HurlWorkbench.Workflow.Render.{RenderedFragmentSpan,RenderedWorkflow,renderWorkflow}`, and
+  `HurlWorkbench.Hurl.Format.{HurlfmtExecutable,HurlfmtCapabilities,DependencyError,
+  detectHurlfmtCapabilities,validateRenderedWorkflow,validateWorkspaceSyntax}`. A
+  `ResolvedWorkflow` retains the selected `Workflow`, canonical workspace root, and non-empty
+  ordered source fragments; `RenderedWorkflow` retains those sources, inclusive spans, and final
+  UTF-8 text. EP-3 must consume these values rather than re-resolving fragment paths or probing
+  Hurlfmt separately.
+  Evidence: `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` and
+  `docs/adr/3-opaque-hurl-fragment-composition.md`.
 
 
 ## Decision Log
@@ -314,8 +351,12 @@ The pre-implementation contract review now has four structured, evidence-backed 
 covering the initiative's primary workflows. EP-1 is complete: the workspace contract
 (schema, typed model, validation boundary) is implemented and recorded in
 `docs/adr/1-versioned-dhall-workspace-schema.md` and
-`docs/adr/2-validated-workspace-boundary.md`. EP-2 through EP-6 remain pending; their
-APIs must preserve the ratified acceptance contracts.
+`docs/adr/2-validated-workspace-boundary.md`. EP-2 is complete: reusable whole-entry fragments
+render deterministically, retain source provenance, and are parsed by Hurlfmt without introducing
+a competing grammar; that boundary is recorded in
+`docs/adr/3-opaque-hurl-fragment-composition.md`. EP-3 through EP-6 remain pending and must preserve
+the ratified acceptance contracts and EP-2 interfaces. The initiative-wide Nix package gate remains
+pending EP-6's documented multi-package repair.
 
 
 ## Revision Note
@@ -334,3 +375,8 @@ and owning ExecPlans, then made EP-7 a governance dependency of EP-1.
 2026-09-19: Implemented EP-1, marked it Complete, recorded its concrete public names, exit
 status, and ADR convention as cross-plan discoveries, and noted EP-2 as the next
 implementable plan.
+
+2026-09-20: Implemented EP-2, marked it Complete, recorded the opaque-fragment composition ADR and
+concrete resolver/render/Hurlfmt interfaces, corrected the pinned treefmt CI command across affected
+plans, and routed the discovered multi-package Nix default failure to EP-6. EP-3 is now the next
+implementable child plan.

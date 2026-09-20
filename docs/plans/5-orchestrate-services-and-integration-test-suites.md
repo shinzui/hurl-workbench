@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Made EP-4 a hard dependency and specified suite preflight, safety, reports, and process-group cleanup."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-20T23:47:35Z
+      mode: "implement"
+      note: "Corrected the formatter acceptance command after EP-2 exercised the pinned treefmt CLI."
 ---
 
 # Orchestrate Services and Integration Test Suites
@@ -44,7 +49,10 @@ bodies.
 ## Surprises & Discoveries
 
 
-(None yet.)
+- Observation: The repository's pinned treefmt CLI uses `--ci`, not the obsolete `--check`
+  flag, for a no-cache fail-on-change validation run. The final acceptance command in this plan
+  has been corrected to `nix fmt -- --ci`.
+  Evidence: EP-2's repository acceptance run on 2026-09-20.
 
 
 ## Decision Log
@@ -383,7 +391,7 @@ mori registry show snoyberg/http-client --full
    ```bash
    cabal build all
    cabal test all
-   nix fmt -- --check
+   nix fmt -- --ci
    ```
 
 
@@ -442,3 +450,6 @@ language, or a report merger.
 relying on immediate-child cleanup, separated suite preflight from execution, defined the
 missing runtime input API and exit precedence, and aligned suite layout/help with the
 Haskell Jitsurei Hurl and CLI patterns.
+
+2026-09-20: Replaced the unsupported treefmt `--check` flag with the pinned CLI's `--ci`
+fail-on-change mode after EP-2 exercised the repository acceptance commands.

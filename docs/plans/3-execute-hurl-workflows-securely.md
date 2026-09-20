@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-18T18:29:32Z
       mode: "update"
       note: "Defined typed execution, output, report, environment, value transport, and start-failure boundaries."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-20T23:51:07Z
+      mode: "implement"
+      note: "Reconciled EP-3 with EP-2's completed resolver, renderer, Hurlfmt, and ADR interfaces."
 ---
 
 # Execute Hurl Workflows Securely
@@ -47,7 +52,14 @@ later plans.
 ## Surprises & Discoveries
 
 
-(None yet.)
+- Observation: EP-2 completed with concrete resolver/rendering types that retain more execution
+  context than the pre-implementation sketch assumed. `ResolvedWorkflow` carries the selected
+  `Workflow`, canonical `WorkspaceRoot`, and non-empty `ResolvedFragment` values;
+  `RenderedWorkflow` carries those sources, inclusive spans, and final UTF-8 `contents`.
+  `HurlWorkbench.Hurl.Format` also owns `DependencyError`, Hurlfmt detection, and syntax validation.
+  EP-3 must reuse these values and extend dependency detection rather than defining parallel
+  fragment, root, or Hurlfmt paths.
+  Evidence: completed EP-2 and `docs/adr/3-opaque-hurl-fragment-composition.md`.
 
 
 ## Decision Log
@@ -93,11 +105,14 @@ later plans.
 ## Context and Orientation
 
 
-This plan depends on `docs/plans/2-compose-and-render-reusable-hurl-workflows.md`, which
-owns `RenderedWorkflow`, `HurlfmtCapabilities`, and the non-shell `typed-process`
-foundation. EP-1 defines `ValidatedWorkspace`, `HurlValueLiteral`, plain and secret
-parameters, optional declared environment sources, and workflow parameter contracts. EP-3
-must resolve values but must never substitute them into Hurl source.
+This plan depends on `docs/plans/2-compose-and-render-reusable-hurl-workflows.md`, which owns
+`ResolvedFragment`, `ResolvedWorkflow`, `RenderedFragmentSpan`, `RenderedWorkflow`,
+`HurlfmtCapabilities`, `DependencyError`, Hurlfmt detection/validation, and the non-shell
+`typed-process` foundation. `ResolvedWorkflow.workflow` is the selected EP-1 `Workflow` definition;
+`ResolvedWorkflow.workspaceRoot` is canonical; and `RenderedWorkflow.contents` is the final source
+to write into the execution temp file. EP-1 defines `ValidatedWorkspace`, `HurlValueLiteral`, plain
+and secret parameters, optional declared environment sources, and workflow parameter contracts.
+EP-3 must resolve values but must never substitute them into Hurl source.
 
 Hurl 8.x supports `--variables-file`, `--secrets-file`, `--file-root`, client mode, and
 `--test`. The official manual notes an important limit: secret values are redacted from
@@ -116,8 +131,9 @@ The supported platform for the first release is macOS and Linux. That permits an
 POSIX owner-only permission check for temporary secret material. Windows portability can
 be added later behind a tested abstraction; it must not weaken the Unix implementation.
 
-No existing ADR governs process or secret behavior. Create an ADR for secret transport,
-child output, and exit propagation when this plan lands.
+`docs/adr/3-opaque-hurl-fragment-composition.md` governs the rendered input boundary. No existing
+ADR governs process or secret behavior. Create an ADR for secret transport, child output, and exit
+propagation when this plan lands.
 
 
 ## Plan of Work
@@ -460,3 +476,6 @@ store, or logging framework to the production library.
 spawn errors, injectable `HurlRunner`, lossless Hurl value literals, owner-only files, and
 filtered `HURL_*` child environments; also aligned command help with the Haskell Jitsurei
 option-group pattern.
+
+2026-09-20: Reconciled the execution plan with EP-2's completed resolver, renderer, Hurlfmt,
+dependency-error, and ADR interfaces so EP-3 reuses the concrete boundary rather than recreating it.
