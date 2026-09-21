@@ -38,6 +38,8 @@ library
   hs-source-dirs: src
   exposed-modules:
     HurlWorkbench.Hurl.Format
+    HurlWorkbench.Parameter.Properties
+    HurlWorkbench.Parameter.Resolve
     HurlWorkbench.Prelude
     HurlWorkbench.Workflow.Render
     HurlWorkbench.Workflow.Resolve
@@ -49,6 +51,7 @@ library
     HurlWorkbench.Workspace.Validate
 
   other-modules:
+    HurlWorkbench.Parameter.Resolve.Internal
     HurlWorkbench.Workspace.Context.Internal
 
   build-depends:
@@ -70,6 +73,7 @@ test-suite hurl-workbench-core-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    HurlWorkbench.Parameter.ParameterTest
     HurlWorkbench.Workflow.WorkflowTest
     HurlWorkbench.Workspace.NameSafetyTest
     HurlWorkbench.Workspace.WorkspaceTest

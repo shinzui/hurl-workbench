@@ -129,7 +129,7 @@ mutations and special perimeter cases.
 | EP-7 | Document and Ratify Hurl Workbench Use Cases | `docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md` | None | None | Complete |
 | EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Complete |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
-| EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Not Started |
+| EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | In Progress |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Not Started |
 | EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
@@ -197,8 +197,9 @@ constraint concrete must create or update the corresponding ADR.
   fragment composition, line-span provenance, Hurlfmt syntax validation, and exact stdout or
   atomic-file rendering; 49 tests pass across both packages and the live Hurlfmt 8.0.1 pipelines
   succeed.
-- [ ] EP-3 through EP-6 remain not started. EP-3 is now implementable. The initiative-wide Nix
-  gate also has a pre-existing multi-package default-output failure assigned to EP-6.
+- [ ] (2026-09-20 17:55 PDT) EP-3 is in progress; binding resolution is the active milestone.
+  EP-4 through EP-6 remain not started. The initiative-wide Nix gate also has a pre-existing
+  multi-package default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries

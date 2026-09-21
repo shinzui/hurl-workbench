@@ -46,7 +46,11 @@ later plans.
 ## Progress
 
 
-(No implementation work has started.)
+- [x] (2026-09-20 18:12 PDT) Milestone 1: resolved plain and secret bindings without
+  rendering them; all 40 core tests pass, including precedence, missing/unexpected names,
+  properties syntax, channel mismatch, and redaction coverage.
+- [ ] Milestone 2: build a secure, bracketed Hurl process adapter.
+- [ ] Milestone 3: expose `run`, `test`, and `doctor`.
 
 
 ## Surprises & Discoveries
