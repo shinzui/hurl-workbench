@@ -5,6 +5,7 @@ module HurlWorkbench.Run.Prepare
     PreparationError (..),
     prepareSelection,
     prepareSelectionForSuite,
+    prepareSelectionForSuiteWith,
     prepareSelectionWith,
     buildBatchCase,
     renderPreparationError,
@@ -54,6 +55,9 @@ prepareSelection = prepareSelectionWith validateRenderedWorkflow
 --   for other selections in the same suite are ignored.
 prepareSelectionForSuite :: HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
 prepareSelectionForSuite = prepareSelectionUsing resolveWorkflowBindingSubsetWithLayers validateRenderedWorkflow
+
+prepareSelectionForSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionForSuiteWith = prepareSelectionUsing resolveWorkflowBindingSubsetWithLayers
 
 prepareSelectionWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
 prepareSelectionWith = prepareSelectionUsing resolveWorkflowBindingsWithLayers

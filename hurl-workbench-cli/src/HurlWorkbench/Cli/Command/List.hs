@@ -15,7 +15,7 @@ import HurlWorkbench.Cli.Options (GlobalOptions, ListCategory (..))
 import HurlWorkbench.Cli.Output (CommandResult, renderTable, success)
 import HurlWorkbench.Cli.Workspace (withValidatedWorkspace)
 import HurlWorkbench.Prelude
-import HurlWorkbench.Workspace.Context (ValidatedWorkspace, validatedWorkspace)
+import HurlWorkbench.Workspace.Context (ValidatedWorkspace, lookupMatrix, lookupRecipe, validatedWorkspace)
 import HurlWorkbench.Workspace.Types
 
 runList :: GlobalOptions -> FilePath -> ListCategory -> IO CommandResult
@@ -43,7 +43,7 @@ listLines category vw = case category of
       RecipesCategory -> table ["NAME", "WORKFLOW", "SAFETY", "BINDINGS", "DESCRIPTION"] (map recipeRow (ws ^. #recipes))
       MatricesCategory -> table ["NAME", "RECIPE", "CASES", "FAIL-FAST", "DESCRIPTION"] (map matrixRow (ws ^. #matrices))
       ServicesCategory -> table ["NAME", "COMMAND", "READINESS", "DESCRIPTION"] (map serviceRow (ws ^. #services))
-      SuitesCategory -> table ["NAME", "RUNS", "SERVICE", "FAIL-FAST", "DESCRIPTION"] (map suiteRow (ws ^. #suites))
+      SuitesCategory -> table ["NAME", "RUNS", "SERVICE", "SAFETY", "FAIL-FAST", "DESCRIPTION"] (map (suiteRow vw) (ws ^. #suites))
 
 table :: [Text] -> [[Text]] -> [Text]
 table _ [] = ["(none)"]
@@ -112,11 +112,12 @@ serviceRow s =
     describe (s ^. #description)
   ]
 
-suiteRow :: Suite -> [Text]
-suiteRow s =
+suiteRow :: ValidatedWorkspace -> Suite -> [Text]
+suiteRow validated s =
   [ unSuiteName (s ^. #name),
     commaList (map runLabel (s ^. #runs)),
     maybe "" unServiceName (s ^. #service),
+    suiteSafety validated s,
     yesNo (s ^. #failFast),
     describe (s ^. #description)
   ]
@@ -125,6 +126,28 @@ suiteRow s =
       WorkflowRun w -> "workflow:" <> unWorkflowName w
       RecipeRun r -> "recipe:" <> unRecipeName r
       MatrixRun m -> "matrix:" <> unMatrixName m
+
+suiteSafety :: ValidatedWorkspace -> Suite -> Text
+suiteSafety validated suite =
+  case (any (== MutatingRun) dispositions, any (== UnclassifiedRun) dispositions) of
+    (False, False) -> "read-only"
+    (True, False) -> "mutating"
+    (False, True) -> "unclassified"
+    (True, True) -> "mutating, unclassified"
+  where
+    dispositions = map disposition (suite ^. #runs)
+    disposition = \case
+      WorkflowRun _ -> UnclassifiedRun
+      RecipeRun name -> maybe UnclassifiedRun recipeDisposition (lookupRecipe name validated)
+      MatrixRun name -> case lookupMatrix name validated >>= (\matrix -> lookupRecipe (matrix ^. #recipe) validated) of
+        Nothing -> UnclassifiedRun
+        Just recipe -> recipeDisposition recipe
+    recipeDisposition recipe = case recipe ^. #safety of
+      ReadOnly -> ReadOnlyRun
+      Mutating -> MutatingRun
+
+data ListedSafety = ReadOnlyRun | MutatingRun | UnclassifiedRun
+  deriving stock (Eq)
 
 -- | Committed plain bindings are part of the workspace source, so they are
 --   safe to display.

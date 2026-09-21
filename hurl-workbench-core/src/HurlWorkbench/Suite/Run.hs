@@ -4,6 +4,7 @@ module HurlWorkbench.Suite.Run
   ( ServiceOutcome (..),
     SuiteResult (..),
     runSuite,
+    runSuiteWith,
   )
 where
 
@@ -17,13 +18,14 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime)
-import HurlWorkbench.Hurl.Format (HurlfmtCapabilities)
+import HurlWorkbench.Hurl.Format (HurlfmtCapabilities, HurlfmtError, validateRenderedWorkflow)
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
 import HurlWorkbench.Service.Resolve
 import HurlWorkbench.Service.Run
 import HurlWorkbench.Suite.Resolve
+import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context (ValidatedWorkspace)
 import HurlWorkbench.Workspace.Types (SuiteName (..))
 import System.Directory (removeFile, renameFile)
@@ -57,8 +59,11 @@ data SuiteResult = SuiteResult
   deriving stock (Generic, Eq, Show)
 
 runSuite :: HurlRunner -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError SuiteResult)
-runSuite runner capabilities validated request =
-  prepareSuite capabilities validated request >>= \case
+runSuite = runSuiteWith validateRenderedWorkflow
+
+runSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlRunner -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError SuiteResult)
+runSuiteWith validateRendered runner capabilities validated request =
+  prepareSuiteWith validateRendered capabilities validated request >>= \case
     Left err -> pure (Left err)
     Right prepared -> Right <$> executePreparedSuite runner prepared
 

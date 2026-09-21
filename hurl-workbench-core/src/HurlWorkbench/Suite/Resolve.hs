@@ -8,6 +8,7 @@ module HurlWorkbench.Suite.Resolve
     SuitePreflightError (..),
     PreparedSuite (..),
     prepareSuite,
+    prepareSuiteWith,
     renderSuitePreflightIssue,
     renderSuitePreflightError,
   )
@@ -20,7 +21,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import HurlWorkbench.Hurl.Format (HurlfmtCapabilities)
+import HurlWorkbench.Hurl.Format (HurlfmtCapabilities, HurlfmtError, validateRenderedWorkflow)
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
@@ -28,6 +29,7 @@ import HurlWorkbench.Run.Batch
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Service.Resolve
+import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context
 import HurlWorkbench.Workspace.Types
 import System.Directory
@@ -78,6 +80,7 @@ data SuitePreflightIssue
   | SuiteRunPreparationFailed !PreparationError
   | SuiteUnsafeRun !Text !SafetyDisposition
   | SuiteDuplicateArtifactStem !FilePath
+  | SuiteSharedCurlExport !FilePath
   | SuiteReportDirectoryRequired
   | SuiteInvalidReportDirectory !FilePath
   | SuiteReportPathExists !FilePath
@@ -104,7 +107,10 @@ data PreparedSuite = PreparedSuite
   deriving stock (Generic, Show)
 
 prepareSuite :: HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
-prepareSuite capabilities validated request =
+prepareSuite = prepareSuiteWith validateRenderedWorkflow
+
+prepareSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
+prepareSuiteWith validateRendered capabilities validated request =
   case lookupSuite (request ^. #suiteName) validated of
     Nothing -> pure (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| [])))
     Just suite -> do
@@ -123,10 +129,15 @@ prepareSuite capabilities validated request =
               requiresAuthorization (prepared ^. #safety)
             ]
           duplicateIssues = map SuiteDuplicateArtifactStem (duplicates (map (view #artifactStem) preparedRuns))
+          curlIssues =
+            [ SuiteSharedCurlExport path
+            | length preparedRuns > 1,
+              Just path <- [request ^. #hurlOptions . #curlExportPath]
+            ]
           reportIssues =
             [SuiteReportDirectoryRequired | not (Set.null (request ^. #suiteOptions . #reportFormats)) && isNothing (request ^. #suiteOptions . #reportDirectory)]
           serviceIssues = either pure (const []) serviceResult
-          issues = preparationIssues <> safetyIssues <> duplicateIssues <> reportIssues <> serviceIssues
+          issues = preparationIssues <> safetyIssues <> duplicateIssues <> curlIssues <> reportIssues <> serviceIssues
       case nonEmpty issues of
         Just problems -> pure (Left (SuitePreflightError problems))
         Nothing -> case (nonEmpty preparedRuns, serviceResult) of
@@ -150,7 +161,8 @@ prepareSuite capabilities validated request =
           _ -> error "prepareSuite: validated suite produced no prepared runs"
   where
     prepareReference reference =
-      prepareSelectionForSuite
+      prepareSelectionForSuiteWith
+        validateRendered
         capabilities
         validated
         (request ^. #bindingInput)
@@ -293,6 +305,7 @@ renderSuitePreflightIssue = \case
   SuiteUnsafeRun name disposition ->
     "run " <> quote name <> " requires --allow-mutating (" <> safetyLabel disposition <> ")"
   SuiteDuplicateArtifactStem stem -> "suite produces duplicate report path for " <> quote (Text.pack stem)
+  SuiteSharedCurlExport path -> "--curl has one path and cannot be shared by multiple suite runs: " <> quote (Text.pack path)
   SuiteReportDirectoryRequired -> "--report-dir is required when a report format is selected"
   SuiteInvalidReportDirectory path -> "invalid report directory " <> quote (Text.pack path)
   SuiteReportPathExists path -> "report suite directory already exists; use --overwrite to replace " <> quote (Text.pack path)

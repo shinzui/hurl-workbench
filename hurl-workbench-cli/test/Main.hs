@@ -19,13 +19,14 @@ import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
+import HurlWorkbench.Suite.Resolve (ReportFormat (..))
 import HurlWorkbench.Workflow.Render (RenderedWorkflow, renderRenderError, renderWorkflow)
 import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
 import HurlWorkbench.Workspace.Context (lookupWorkflow)
-import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), WorkflowName (..), mkHurlValueLiteral)
+import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), SuiteName (..), WorkflowName (..), mkHurlValueLiteral)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, renderFailure)
-import System.Directory (canonicalizePath, getPermissions, setOwnerExecutable, setPermissions)
+import System.Directory (canonicalizePath, doesPathExist, getPermissions, setOwnerExecutable, setPermissions)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -128,6 +129,43 @@ parserTests =
           _ -> assertFailure "expected matrix --help to produce help text"
         for_ ["Batch control", "Bindings", "HTTP and retry", "Output", "Advanced Hurl arguments"] $ \heading ->
           assertBool ("mentions " <> heading) (heading `isIn` helpText),
+      testCase "suite test parses lifecycle, safety, and report controls" $ do
+        selected <-
+          successOf
+            ( parse
+                [ "test",
+                  "suite",
+                  "default",
+                  "--jobs",
+                  "3",
+                  "--keep-going",
+                  "--allow-mutating",
+                  "--external-service",
+                  "--report",
+                  "junit",
+                  "--report",
+                  "json",
+                  "--report-dir",
+                  "reports",
+                  "--overwrite"
+                ]
+            )
+        case selected ^. #cmd of
+          SuiteCommand options -> do
+            options ^. #suite @?= SuiteName "default"
+            positiveIntValue (options ^. #jobs) @?= 3
+            options ^. #failFastOverride @?= Just False
+            options ^. #allowMutating @?= True
+            options ^. #externalService @?= True
+            options ^. #reportFormats @?= [JUnit, Json]
+            options ^. #reportDirectory @?= Just "reports"
+            options ^. #overwrite @?= True
+          other -> assertFailure ("expected suite command, got " <> show other)
+        helpText <- case parse ["test", "suite", "default", "--help"] of
+          Failure failure -> pure (fst (renderFailure failure "hurl-workbench"))
+          _ -> assertFailure "expected suite --help to produce help text"
+        for_ ["Suite control", "Service lifecycle", "Reports", "Bindings", "Advanced Hurl arguments"] $ \heading ->
+          assertBool ("mentions " <> heading) (heading `isIn` helpText),
       testCase "help lists every top-level command and no longer mentions hello" $ do
         helpText <- case parse ["--help"] of
           Failure failure -> pure (fst (renderFailure failure "hurl-workbench"))
@@ -186,7 +224,8 @@ commandTests =
         for_ ["Parameters:", "Fragments:", "Workflows:", "Recipes:", "Matrices:", "Services:", "Suites:"] $ \title ->
           assertBool ("has heading " <> Text.unpack title) (title `elem` out)
         assertBool "workflow shares the oauth fragment" (any (Text.isInfixOf "list-properties  oauth, properties") out)
-        assertBool "suite lists its runs" (any (Text.isInfixOf "workflow:list-members, recipe:top-properties, matrix:property-page-sizes") out),
+        assertBool "suite lists its runs" (any (Text.isInfixOf "workflow:list-members, recipe:top-properties, matrix:property-page-sizes") out)
+        assertBool "suite identifies unclassified safety" (any (Text.isInfixOf "unclassified") out),
       testCase "list parameters names environment variables but never reads them" $ do
         result <- runTestCommand (GlobalOptions (Just (fixtureManifest "full"))) "." (ListCommand ParametersCategory)
         result ^. #stdoutLines
@@ -322,6 +361,39 @@ commandTests =
           length (filter (Text.isPrefixOf "PASS") (result ^. #stderrLines)) @?= 3
           for_ ["first", "second", "third"] $ \caseName ->
             ByteString.readFile (output </> "health-cases" </> caseName <> ".response") >>= (@?= ""),
+      testCase "suite command gates unsafe runs and writes isolated reports" $
+        withSystemTempDirectory "hurl-workbench-cli-suite" $ \dir -> do
+          executable <- writeExitHurl dir 0
+          let secretFile = dir </> "secrets.env"
+              reportRoot = dir </> "reports"
+              options allowed reports =
+                SuiteCommandOptions
+                  { suite = SuiteName "smoke",
+                    jobs = positiveJobs 2,
+                    failFastOverride = Nothing,
+                    allowMutating = allowed,
+                    externalService = True,
+                    reportFormats = reports,
+                    reportDirectory = if null reports then Nothing else Just reportRoot,
+                    overwrite = False,
+                    bindings = BindingOptions ["client_id=suite-client"] [] [] [secretFile],
+                    hurl = defaultCliHurlOptions
+                  }
+          ByteString.writeFile secretFile "client_secret=suite-secret\n"
+          denied <- runExecutionCommandAt (fixtureManifest "full") (Right (testCapabilities executable)) (SuiteCommand (options False []))
+          denied ^. #exitCode @?= ExitFailure 2
+          assertBool "explains suite safety" (any (Text.isInfixOf "requires --allow-mutating") (denied ^. #stderrLines))
+          passed <- runExecutionCommandAt (fixtureManifest "full") (Right (testCapabilities executable)) (SuiteCommand (options True [JUnit, Json]))
+          passed ^. #exitCode @?= ExitSuccess
+          length (filter (Text.isPrefixOf "PASS") (passed ^. #stderrLines)) @?= 4
+          assertBool "prints summary path" (any (Text.isPrefixOf "SUMMARY ") (passed ^. #stderrLines))
+          for_
+            [ reportRoot </> "smoke" </> "list-members" </> "junit.xml",
+              reportRoot </> "smoke" </> "list-members" </> "json",
+              reportRoot </> "smoke" </> "property-page-sizes" </> "small" </> "junit.xml",
+              reportRoot </> "smoke" </> "summary.json"
+            ]
+            $ \path -> doesPathExist path >>= assertBool ("missing suite artifact " <> path),
       testCase "doctor reports both executable paths and versions without a workspace" $ do
         let capabilities = testCapabilities "/tools/hurl"
         result <- runExecutionCommand (Right capabilities) DoctorCommand
@@ -338,13 +410,16 @@ runTestCommand =
     (\_capabilities _validated -> pure (Right []))
 
 runExecutionCommand :: Either DependencyError HurlCapabilities -> Command -> IO CommandResult
-runExecutionCommand detected =
+runExecutionCommand = runExecutionCommandAt (fixtureManifest "execution")
+
+runExecutionCommandAt :: FilePath -> Either DependencyError HurlCapabilities -> Command -> IO CommandResult
+runExecutionCommandAt manifest detected =
   runCommandWithDependencies
     (pure (Right (HurlfmtCapabilities (HurlfmtExecutable "/tools/hurlfmt") (makeVersion [8, 0, 1]))))
     (pure detected)
     (\_capabilities _rendered -> pure (Right ()))
     (\_capabilities _validated -> pure (Right []))
-    (GlobalOptions (Just (fixtureManifest "execution")))
+    (GlobalOptions (Just manifest))
     "."
 
 testCapabilities :: FilePath -> HurlCapabilities

@@ -5,6 +5,7 @@
 -- > hurl-workbench [--workspace FILE] render (workflow|recipe) NAME [--output FILE]
 -- > hurl-workbench [--workspace FILE] run (workflow|recipe) NAME [OPTIONS]
 -- > hurl-workbench [--workspace FILE] test (workflow|recipe) NAME [OPTIONS]
+-- > hurl-workbench [--workspace FILE] test suite NAME [OPTIONS]
 -- > hurl-workbench [--workspace FILE] matrix NAME [OPTIONS]
 -- > hurl-workbench doctor
 module HurlWorkbench.Cli.Options
@@ -14,6 +15,7 @@ module HurlWorkbench.Cli.Options
     RenderOptions (..),
     ExecuteOptions (..),
     MatrixOptions (..),
+    SuiteCommandOptions (..),
     BindingOptions (..),
     emptyBindingOptions,
     CliHurlOptions (..),
@@ -31,7 +33,8 @@ import HurlWorkbench.Hurl.Run (HurlRunMode (..), HurlVerbosity (..))
 import HurlWorkbench.Prelude hiding (argument)
 import HurlWorkbench.Run.Batch (PositiveInt, mkPositiveInt)
 import HurlWorkbench.Run.Selection (RunSelection (..))
-import HurlWorkbench.Workspace.Types (MatrixName (..), RecipeName (..), WorkflowName (..))
+import HurlWorkbench.Suite.Resolve (ReportFormat (..))
+import HurlWorkbench.Workspace.Types (MatrixName (..), RecipeName (..), SuiteName (..), WorkflowName (..))
 import Options.Applicative
   ( Parser,
     ParserInfo,
@@ -85,6 +88,7 @@ data Command
   | RunCommand !ExecuteOptions
   | TestCommand !ExecuteOptions
   | MatrixCommand !MatrixOptions
+  | SuiteCommand !SuiteCommandOptions
   | DoctorCommand
   deriving stock (Generic, Eq, Show)
 
@@ -111,6 +115,20 @@ data MatrixOptions = MatrixOptions
     failFastOverride :: !(Maybe Bool),
     allowMutating :: !Bool,
     outputDirectory :: !(Maybe FilePath),
+    overwrite :: !Bool,
+    bindings :: !BindingOptions,
+    hurl :: !CliHurlOptions
+  }
+  deriving stock (Generic, Eq, Show)
+
+data SuiteCommandOptions = SuiteCommandOptions
+  { suite :: !SuiteName,
+    jobs :: !PositiveInt,
+    failFastOverride :: !(Maybe Bool),
+    allowMutating :: !Bool,
+    externalService :: !Bool,
+    reportFormats :: ![ReportFormat],
+    reportDirectory :: !(Maybe FilePath),
     overwrite :: !Bool,
     bindings :: !BindingOptions,
     hurl :: !CliHurlOptions
@@ -164,6 +182,10 @@ data OutputDiagnosticOptions = OutputDiagnosticOptions !Bool !Bool !(Maybe HurlV
 data BatchControlOptions = BatchControlOptions !HurlRunMode !PositiveInt !(Maybe Bool) !Bool
 
 data MatrixOutputOptions = MatrixOutputOptions !(Maybe FilePath) !Bool !OutputDiagnosticOptions
+
+data SuiteControlOptions = SuiteControlOptions !PositiveInt !(Maybe Bool) !Bool
+
+data SuiteReportOptions = SuiteReportOptions ![ReportFormat] !(Maybe FilePath) !Bool
 
 -- | Which entities @list@ prints.
 data ListCategory
@@ -258,8 +280,8 @@ commandParser =
         <> command
           "test"
           ( info
-              (executeCommandParser TestCommand)
-              (progDesc "Execute one workflow in Hurl test mode")
+              testCommandParser
+              (progDesc "Execute one workflow, recipe, or integration suite in Hurl test mode")
           )
         <> command
           "matrix"
@@ -325,6 +347,29 @@ executeCommandParser constructor =
           )
     )
 
+testCommandParser :: Parser Command
+testCommandParser =
+  hsubparser
+    ( command
+        "workflow"
+        ( info
+            (TestCommand <$> executeOptionsParser (SelectWorkflow . WorkflowName . Text.pack))
+            (progDesc "Execute one unclassified low-level workflow")
+        )
+        <> command
+          "recipe"
+          ( info
+              (TestCommand <$> executeOptionsParser (SelectRecipe . RecipeName . Text.pack))
+              (progDesc "Execute one safety-classified recipe")
+          )
+        <> command
+          "suite"
+          ( info
+              (SuiteCommand <$> suiteCommandOptionsParser)
+              (progDesc "Execute every run in one integration suite")
+          )
+    )
+
 executeOptionsParser :: (String -> RunSelection) -> Parser ExecuteOptions
 executeOptionsParser selectionConstructor =
   ExecuteOptions
@@ -363,6 +408,68 @@ matrixOptionsParser =
             bindings,
             hurl = assembleCliHurlOptions http diagnostics additionalArguments
           }
+
+suiteCommandOptionsParser :: Parser SuiteCommandOptions
+suiteCommandOptionsParser =
+  assemble
+    <$> (SuiteName . Text.pack <$> strArgument (metavar "NAME" <> help "Suite name"))
+    <*> suiteControlOptionsParser
+    <*> parserOptionGroup
+      "Service lifecycle"
+      (switch (long "external-service" <> help "Use an already-running service and skip managed startup, readiness, and shutdown"))
+    <*> suiteReportOptionsParser
+    <*> bindingOptionsParser
+    <*> httpRetryOptionsParser
+    <*> outputDiagnosticOptionsParser
+    <*> advancedArgumentsParser
+  where
+    assemble
+      suite
+      (SuiteControlOptions jobs failFastOverride allowMutating)
+      externalService
+      (SuiteReportOptions reportFormats reportDirectory overwrite)
+      bindings
+      http
+      diagnostics
+      additionalArguments =
+        SuiteCommandOptions
+          { suite,
+            jobs,
+            failFastOverride,
+            allowMutating,
+            externalService,
+            reportFormats,
+            reportDirectory,
+            overwrite,
+            bindings,
+            hurl = assembleCliHurlOptions http diagnostics additionalArguments
+          }
+
+suiteControlOptionsParser :: Parser SuiteControlOptions
+suiteControlOptionsParser =
+  parserOptionGroup "Suite control" $
+    SuiteControlOptions
+      <$> option
+        (eitherReader parsePositiveInt)
+        (long "jobs" <> metavar "N" <> value oneJob <> help "Maximum concurrent Hurl processes (default: 1)")
+      <*> optional
+        ( flag' True (long "fail-fast" <> help "Stop scheduling after the first observed failure")
+            <|> flag' False (long "keep-going" <> help "Run every case despite failures")
+        )
+      <*> switch (long "allow-mutating" <> help "Authorize mutating and unclassified runs in this invocation")
+
+suiteReportOptionsParser :: Parser SuiteReportOptions
+suiteReportOptionsParser =
+  parserOptionGroup "Reports" $
+    SuiteReportOptions
+      <$> many
+        ( option
+            (eitherReader parseReportFormat)
+            (long "report" <> metavar "junit|html|json|tap" <> help "Emit one isolated report of this format per expanded run; repeat for several formats")
+        )
+      <*> optional
+        (strOption (long "report-dir" <> metavar "DIR" <> help "Write per-run reports and summary.json beneath DIR/SUITE"))
+      <*> switch (long "overwrite" <> help "Replace only the selected suite subtree beneath --report-dir")
 
 batchControlOptionsParser :: Parser BatchControlOptions
 batchControlOptionsParser =
@@ -506,6 +613,14 @@ parsePositiveInt raw = case readMaybe raw of
   Just parsedValue -> case mkPositiveInt parsedValue of
     Left _ -> Left ("expected a positive integer, got " <> show raw)
     Right positive -> Right positive
+
+parseReportFormat :: String -> Either String ReportFormat
+parseReportFormat = \case
+  "junit" -> Right JUnit
+  "html" -> Right Html
+  "json" -> Right Json
+  "tap" -> Right Tap
+  other -> Left ("unknown report format " <> show other <> "; expected junit, html, json, or tap")
 
 oneJob :: PositiveInt
 oneJob = case mkPositiveInt 1 of

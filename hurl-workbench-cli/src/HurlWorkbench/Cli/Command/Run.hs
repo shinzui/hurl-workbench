@@ -2,6 +2,7 @@ module HurlWorkbench.Cli.Command.Run
   ( runExecute,
     runExecuteWith,
     buildExecutionInputs,
+    buildRuntimeInputs,
   )
 where
 
@@ -88,17 +89,19 @@ runExecuteWith detectCapabilities validateRendered global currentDirectory mode 
                 Right _ -> pure (workbenchFailure 2 ["error: run and test accept one workflow or recipe, not a matrix"])
 
 buildExecutionInputs :: ExecuteOptions -> Either [Text] (BindingInput, HurlOptions)
-buildExecutionInputs executeOptions = do
-  plain <- parseUnique "--variable" parsePlain (executeOptions ^. #bindings . #variables)
-  secretEnvironments <- parseUnique "--secret-env" parseSecretEnvironment (executeOptions ^. #bindings . #secretEnvironments)
-  additional <- collect (map (first renderCliHurlOptionError . mkAllowedHurlArgument) (executeOptions ^. #hurl . #additionalArguments))
-  let cli = executeOptions ^. #hurl
+buildExecutionInputs executeOptions = buildRuntimeInputs (executeOptions ^. #bindings) (executeOptions ^. #hurl)
+
+buildRuntimeInputs :: BindingOptions -> CliHurlOptions -> Either [Text] (BindingInput, HurlOptions)
+buildRuntimeInputs bindingOptions cli = do
+  plain <- parseUnique "--variable" parsePlain (bindingOptions ^. #variables)
+  secretEnvironments <- parseUnique "--secret-env" parseSecretEnvironment (bindingOptions ^. #secretEnvironments)
+  additional <- collect (map (first renderCliHurlOptionError . mkAllowedHurlArgument) (cli ^. #additionalArguments))
   pure
     ( BindingInput
         { plainOverrides = plain,
           secretEnvironmentOverrides = secretEnvironments,
-          variableFiles = executeOptions ^. #bindings . #variableFiles,
-          secretFiles = executeOptions ^. #bindings . #secretFiles
+          variableFiles = bindingOptions ^. #variableFiles,
+          secretFiles = bindingOptions ^. #secretFiles
         },
       HurlOptions
         { connectTimeoutSeconds = cli ^. #connectTimeoutSeconds,

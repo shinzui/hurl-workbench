@@ -12,6 +12,7 @@ import HurlWorkbench.Cli.Command.List (runList)
 import HurlWorkbench.Cli.Command.Matrix (runMatrixWith)
 import HurlWorkbench.Cli.Command.Render (runRenderWith)
 import HurlWorkbench.Cli.Command.Run (runExecuteWith)
+import HurlWorkbench.Cli.Command.Suite (runSuiteCommandWith)
 import HurlWorkbench.Cli.Command.Validate (runValidateWith)
 import HurlWorkbench.Cli.Options (Command (..), GlobalOptions, Options (..), parserInfo)
 import HurlWorkbench.Cli.Output (CommandResult, emitResult)
@@ -104,4 +105,5 @@ runCommandWithDependencies detectHurlfmt detectHurl validateRendered validateSyn
   RunCommand options -> runExecuteWith detectHurl validateRendered global currentDirectory ClientMode options
   TestCommand options -> runExecuteWith detectHurl validateRendered global currentDirectory TestMode options
   MatrixCommand options -> runMatrixWith detectHurl validateRendered global currentDirectory options
+  SuiteCommand options -> runSuiteCommandWith detectHurl validateRendered global currentDirectory options
   DoctorCommand -> runDoctorWith detectHurl

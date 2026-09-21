@@ -43,6 +43,7 @@ library
     HurlWorkbench.Cli.Command.Matrix
     HurlWorkbench.Cli.Command.Render
     HurlWorkbench.Cli.Command.Run
+    HurlWorkbench.Cli.Command.Suite
     HurlWorkbench.Cli.Command.Validate
     HurlWorkbench.Cli.Options
     HurlWorkbench.Cli.Output

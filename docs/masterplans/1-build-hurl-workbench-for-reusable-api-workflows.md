@@ -131,7 +131,7 @@ mutations and special perimeter cases.
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Complete |
-| EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | In Progress |
+| EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Complete |
 | EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
 
 Status values are Not Started, In Progress, Complete, and Cancelled. Every child plan
@@ -205,8 +205,13 @@ constraint concrete must create or update the corresponding ADR.
   precedence, bounded fail-fast execution, owner-only response artifacts, safety-gated CLI UX,
   and the fixture-backed vendor/OData example. All 54 core and 27 CLI tests pass, and its real
   three-case client matrix produced distinct responses in declaration order.
-- [ ] (2026-09-20) EP-5 is in progress; EP-6 remains not started. The initiative-wide Nix
-  gate also has a pre-existing multi-package default-output failure assigned to EP-6.
+- [x] (2026-09-20) EP-5 delivered suite-wide preflight, safety gates, managed/external service
+  lifecycle, isolated reports and atomic summaries, grouped suite CLI UX, the integration guide,
+  and the fixture-backed managed-service example. All 64 core and 29 CLI tests pass; the real safe
+  suite produced JUnit/JSON reports, the write gate was proven both denied and authorized, and the
+  managed port was closed afterward.
+- [ ] EP-6 remains not started. The initiative-wide Nix gate also has a pre-existing multi-package
+  default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries
@@ -392,7 +397,11 @@ test, and dependency-diagnostic flows; the boundary is recorded in
 `docs/adr/4-secure-hurl-process-boundary.md`. EP-4 is complete: recipes and matrices reduce to
 prepared secure requests, bounded workers preserve truthful ordered outcomes, mutating selections
 are explicitly gated, and the vendor/OData example passes end to end; the batch boundary is recorded
-in `docs/adr/5-bounded-isolated-batch-execution.md`. EP-5 and EP-6 remain pending and must preserve
+in `docs/adr/5-bounded-isolated-batch-execution.md`. EP-5 is complete: managed services use
+process-group ownership, whole-suite preflight blocks unsafe or invalid work before spawn, and
+isolated Hurl reports plus redacted summaries preserve truthful outcomes; these boundaries are
+recorded in `docs/adr/6-managed-service-process-group-lifecycle.md` and
+`docs/adr/7-suite-preflight-safety-and-report-isolation.md`. EP-6 remains pending and must preserve
 the ratified acceptance contracts and completed interfaces. The initiative-wide Nix package gate
 remains pending EP-6's documented multi-package repair.
 
@@ -426,3 +435,8 @@ now the next implementable child plan.
 2026-09-20: Implemented EP-4, marked it Complete, recorded bounded isolated batch execution,
 delivered the vendor/OData example and all UC-2 features, and exposed the selection/preparation/
 batch APIs consumed by EP-5. EP-5 is now the next implementable child plan.
+
+2026-09-20: Implemented EP-5, marked it Complete, recorded managed process-group ownership and
+whole-suite preflight/report isolation, delivered all UC-3 features plus the managed integration
+example, and verified real Hurl JUnit/JSON reporting and mutation gating. EP-6 is now the final
+implementable child plan.

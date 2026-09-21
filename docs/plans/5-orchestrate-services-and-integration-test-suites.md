@@ -53,7 +53,13 @@ bodies.
   inputs resolve per consumer, managed-service failures preserve completed cases and skip the rest,
   and isolated owner-only report trees receive atomic redacted summaries. Core coverage is now 64
   tests, including mutation gating, external-service execution, overwrite recovery, and exit 4.
-- [ ] Milestone 3: add suite CLI and an integration-testing example.
+- [x] (2026-09-20) Milestone 3: add suite CLI and an integration-testing example. `test suite`
+  exposes grouped lifecycle/safety/report options, suite listings show safety, the guide covers
+  managed/external services and generated variables, and `examples/integration-service/` separates
+  safe, write, and perimeter suites. The real managed safe suite passed with JUnit/JSON reports,
+  the write gate refused before spawn and passed with authorization, and port 18080 was closed after
+  both managed runs. The same safe suite passed against a separately owned fixture with
+  `--external-service` and performed no lifecycle action.
 
 
 ## Surprises & Discoveries
@@ -74,6 +80,14 @@ bodies.
   Evidence: Cabal's solver reported Dhall's `aeson <2.3` constraint. Aeson 2.2.5.1 was verified in
   the authoritative package index and against upstream tag `v2.2.5.1`, then bounded as
   `>=2.2.5.1 && <2.3`.
+
+- Observation: Hurl 8.0.1 parses an existing JUnit or TAP report before appending, and its JUnit
+  implementation unwraps the parser result. An empty precreated owner-only file therefore panics.
+  Evidence: official upstream tag `8.0.1` in `mori://orange-open-source/hurl`, project-relative
+  paths `packages/hurl/src/report/junit/mod.rs` and `packages/hurl/src/report/tap/report.rs`
+  (artifact-level URIs pending); the first real suite run reproduced the JUnit panic. The adapter
+  now seeds secure files with valid empty JUnit/TAP documents, which Hurl replaces while preserving
+  mode `0600`.
 
 
 ## Decision Log
@@ -124,7 +138,17 @@ bodies.
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+EP-5 delivered the complete UC-3 boundary: suite-wide preflight, explicit mutation authorization,
+one optional managed POSIX service, bounded Hurl execution, external-service mode, isolated typed
+reports, atomic redacted summaries, and stable orchestration exits. ADRs 6 and 7 record process-group
+ownership and whole-suite preflight/report isolation.
+
+All 64 core and 29 CLI tests pass. The fixture-backed `default` suite passed under real Hurl 8.0.1
+with JUnit and JSON reports in owner-only directories, and the mutating `writes` suite proved both
+the no-spawn refusal and authorized success paths. The managed server was unreachable after each
+run, while the same safe suite passed against an independently owned server in external mode. The
+most useful end-to-end discovery was that secure report initialization must honor Hurl's append
+parsers rather than merely precreate an empty file.
 
 
 ## Context and Orientation
@@ -494,3 +518,9 @@ Haskell Jitsurei Hurl and CLI patterns.
 
 2026-09-20: Replaced the unsupported treefmt `--check` flag with the pinned CLI's `--ci`
 fail-on-change mode after EP-2 exercised the repository acceptance commands.
+
+2026-09-20: Implemented service process-group ownership, whole-suite preflight and safety gates,
+isolated reports with atomic summaries, grouped suite CLI controls, and the managed integration
+example. Added the overwrite/result fields omitted from the initial interface sketch, selected the
+latest Aeson compatible with Dhall 1.42.3, and initialized append-style Hurl reports with valid
+empty documents after the real JUnit smoke exposed Hurl 8.0.1's empty-file panic.

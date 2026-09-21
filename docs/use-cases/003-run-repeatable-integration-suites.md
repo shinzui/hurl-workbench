@@ -38,7 +38,7 @@ jobs:
 features:
   - name: explicit-safe-suite
     description: Select safe resources explicitly while keeping mutating, signed, and perimeter cases separately opt-in.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: The default suite runs only its enumerated read-only cases; adding files to the workspace cannot silently add them to the suite.
@@ -46,7 +46,7 @@ features:
       - run-safe-suite-in-local-and-ci-environments
   - name: managed-service-lifecycle
     description: Start a service without a shell, wait for readiness, run prepared cases, and terminate the process group reliably.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A ready fixture runs its suite and is stopped; a never-ready fixture starts no Hurl case, records skipped outcomes, returns orchestration exit 4, and leaves no child process.
@@ -54,7 +54,7 @@ features:
       - manage-fixture-service-for-a-suite
   - name: isolated-reports-and-results
     description: Give each suite run collision-free report paths and retain exact per-case Hurl outcomes.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: Parallel suite cases produce distinct report artifacts and stable summaries without overwriting each other or collapsing Hurl statuses.
@@ -96,3 +96,11 @@ and the managed-service gap.
 The contract fails this use case if suite membership is implicit, service commands pass
 through a shell, Hurl runs before readiness, cleanup is best-effort only, or orchestration
 failures become indistinguishable from Hurl assertion failures.
+
+## Delivery evidence
+
+EP-5 implements all three features through `Suite.Resolve`, `Suite.Run`, `Service.Resolve`, and
+`Service.Run`, exposed by `hurl-workbench test suite`. The fixture-backed
+`examples/integration-service/` default suite passed under real Hurl 8.0.1 with isolated JUnit and
+JSON reports; the write suite was refused before service spawn without authorization and passed
+with `--allow-mutating`; process-liveness tests and the real example verified cleanup.

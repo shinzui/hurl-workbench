@@ -228,15 +228,22 @@ prepareResponseTarget = prepareSecureFile
 
 prepareReportTarget :: HurlReportTarget -> IO ()
 prepareReportTarget = \case
-  JUnitReport path -> prepareSecureFile path
-  TapReport path -> prepareSecureFile path
+  JUnitReport path -> prepareSecureFileWith path "<?xml version=\"1.0\"?>\n<testsuites/>\n"
+  TapReport path -> prepareSecureFileWith path "TAP version 13\n1..0\n"
   HtmlReport path -> prepareSecureDirectory path
   JsonReport path -> prepareSecureDirectory path
 
 prepareSecureFile :: FilePath -> IO ()
-prepareSecureFile path = do
+prepareSecureFile path = prepareSecureFileWith path ""
+
+-- Hurl 8 appends to JUnit and TAP files by parsing any existing target. Seed
+-- those owner-only files with valid empty documents rather than zero bytes;
+-- File.create then preserves the secure mode when Hurl replaces the content.
+prepareSecureFileWith :: FilePath -> ByteString.ByteString -> IO ()
+prepareSecureFileWith path initialContent = do
   createDirectoryIfMissing True (takeDirectory path)
   handle <- fdToHandle =<< openFd path WriteOnly defaultFileFlags {creat = Just secureFileMode, trunc = True, nofollow = True}
+  ByteString.hPut handle initialContent
   hClose handle
   setFileMode path secureFileMode
   verifyMode secureFileMode path

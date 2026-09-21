@@ -1,6 +1,8 @@
 module HurlWorkbench.Cli.Command.Matrix
   ( runMatrix,
     runMatrixWith,
+    replayCaptured,
+    renderCaseSummary,
   )
 where
 

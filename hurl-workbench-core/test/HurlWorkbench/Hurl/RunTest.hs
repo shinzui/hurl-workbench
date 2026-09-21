@@ -120,6 +120,8 @@ runnerTests =
         filePermissions curl >>= (@?= 0o600)
         directoryPermissions html >>= (@?= 0o700)
         directoryPermissions json >>= (@?= 0o700)
+        ByteString.Char8.readFile junit >>= (@?= "<?xml version=\"1.0\"?>\n<testsuites/>\n")
+        ByteString.Char8.readFile tap >>= (@?= "TAP version 13\n1..0\n")
         arguments <- Text.lines <$> Text.IO.readFile (runLog <> ".args")
         assertBool "client mode omits --test" ("--test" `notElem` arguments)
         assertBool "output flag" (hasPair "--output" (Text.pack response) arguments)
