@@ -15,4 +15,22 @@ in  Schema.Workspace::{
         , parameters = [ "baseUrl" ]
         }
       ]
+    , recipes =
+      [ Schema.Recipe::{
+        , name = "health"
+        , workflow = "health"
+        , safety = Schema.Safety.ReadOnly
+        }
+      ]
+    , matrices =
+      [ Schema.Matrix::{
+        , name = "health-cases"
+        , recipe = "health"
+        , cases =
+          [ Schema.MatrixCase::{ name = "first" }
+          , Schema.MatrixCase::{ name = "second" }
+          , Schema.MatrixCase::{ name = "third" }
+          ]
+        }
+      ]
     }

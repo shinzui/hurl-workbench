@@ -49,7 +49,9 @@ of being forced into a generic abstraction.
 - [x] (2026-09-20) Milestone 1: resolved workflow, recipe, and matrix selections through
   ordered committed binding layers and prepared every case as the shared `RunRequest`
   shape before spawn; all 50 core and 22 CLI tests pass.
-- [ ] Milestone 2: add bounded matrix execution and artifacts.
+- [x] (2026-09-20) Milestone 2: added a fixed STM worker queue, deterministic typed
+  outcomes, fail-fast skipping, and collision-checked owner-only response artifacts; all
+  54 core and 23 CLI tests pass, including a real three-case Hurl 8.0.1 matrix.
 - [ ] Milestone 3: expose recipe and matrix UX plus the representative vendor example.
 
 
@@ -67,6 +69,13 @@ of being forced into a generic abstraction.
   layers, while declared environments and defaults stay below them.
   Evidence: `HurlWorkbench.Parameter.Resolve` and the precedence table in
   `HurlWorkbench.Run.SelectionTest`.
+
+- Observation: Mori has no registered source project for the Haskell `async` package (its
+  `async` search result is an unrelated AsyncAPI project). Hackage reports 2.2.6 as the
+  current release; that release's `Control.Concurrent.Async` supplies structured worker
+  lifetime management, while the workbench's STM queue owns scheduling and fail-fast.
+  Evidence: `mori registry search async`, `cabal info async`, the unpacked 2.2.6 source,
+  and upstream release tags checked on 2026-09-20.
 
 
 ## Decision Log
@@ -94,6 +103,14 @@ of being forced into a generic abstraction.
   Rationale: Fail-fast creates cases that never start, and process setup can fail before
   Hurl exists; neither condition has a truthful Hurl status.
   Date: 2026-09-18
+
+- Decision: Schedule batches through a fixed STM worker queue and prepare response
+  artifacts as owner-only paths derived exclusively from validated logical names.
+  Rationale: The concurrency limit then applies to actually scheduled processes, fail-fast
+  can leave queue entries truthfully unstarted, and parallel response bodies cannot
+  interleave or overwrite one another.
+  Date: 2026-09-20
+  ADR: `docs/adr/5-bounded-isolated-batch-execution.md`
 
 
 ## Outcomes & Retrospective

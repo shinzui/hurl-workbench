@@ -16,10 +16,13 @@ import HurlWorkbench.Hurl.Format
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.Prepare
+import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render (RenderedWorkflow, renderRenderError, renderWorkflow)
 import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
 import HurlWorkbench.Workspace.Context (lookupWorkflow)
-import HurlWorkbench.Workspace.Types (ParameterName (..), WorkflowName (..), mkHurlValueLiteral)
+import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), WorkflowName (..), mkHurlValueLiteral)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, renderFailure)
 import System.Directory (canonicalizePath, getPermissions, setOwnerExecutable, setPermissions)
@@ -315,8 +318,41 @@ executionTests =
                     False
                     (\captured -> not (ByteString.null (captured ^. #stdout) && ByteString.null (captured ^. #stderr)))
                     (test ^. #capturedOutput)
-                )
+                ),
+      testCase "a real Hurl matrix runs with bounded captured output" $ do
+        detected <- detectHurlCapabilities
+        case detected of
+          Left DependencyNotFound {} -> putStrLn "SKIP: Hurl 8.x or Hurlfmt is not installed"
+          Left err -> assertFailure (Text.unpack (renderDependencyError err))
+          Right capabilities ->
+            testWithApplication (pure FixtureServer.application) $ \port -> do
+              validated <-
+                loadValidatedWorkspace
+                  (GlobalOptions (Just (fixtureManifest "execution")))
+                  "."
+                  >>= either (assertFailure . Text.unpack . Text.unlines) pure
+              baseUrl <-
+                either
+                  (assertFailure . show)
+                  pure
+                  (mkHurlValueLiteral ("http://127.0.0.1:" <> Text.pack (show port)))
+              prepared <-
+                prepareSelection
+                  (capabilities ^. #hurlfmt)
+                  validated
+                  emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") baseUrl}
+                  defaultHurlOptions
+                  (SelectMatrix (MatrixName "health-cases"))
+                  >>= either (assertFailure . Text.unpack . Text.unlines . map renderPreparationError . toList) pure
+              let cases = fmap (buildBatchCase TestMode CaptureRunOutput []) prepared
+              result <- runBatch (mkHurlRunner capabilities) (BatchOptions (positiveJobs 2) False) cases
+              result ^. #selectedExitCode @?= ExitSuccess
+              map (view #outcome) (toList (result ^. #cases)) @?= replicate 3 CasePassed
+              assertBool "all cases retain captured Hurl diagnostics" (all (isJust . view #capturedOutput) (result ^. #cases))
     ]
+
+positiveJobs :: Int -> PositiveInt
+positiveJobs value = either (error . show) id (mkPositiveInt value)
 
 runLive :: HurlCapabilities -> RenderedWorkflow -> ResolvedBindings -> HurlRunMode -> IO RunResult
 runLive capabilities rendered bindings mode =

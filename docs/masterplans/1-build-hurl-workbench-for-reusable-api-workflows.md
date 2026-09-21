@@ -202,9 +202,10 @@ constraint concrete must create or update the corresponding ADR.
   server, and grouped `run`, `test`, and `doctor` commands. All 47 core and 22 CLI tests pass,
   and real Hurl 8.0.1 client/test/doctor smoke runs succeed.
 - [ ] (2026-09-20) EP-4 is in progress; selection expansion, layered binding precedence,
-  and all-cases-before-spawn preparation are complete, with bounded batch execution next.
-  EP-5 and EP-6 remain not started. The initiative-wide Nix gate also has a pre-existing
-  multi-package default-output failure assigned to EP-6.
+  all-cases-before-spawn preparation, bounded fail-fast execution, and owner-only response
+  artifacts are complete, with CLI/example delivery next. EP-5 and EP-6 remain not started.
+  The initiative-wide Nix gate also has a pre-existing multi-package default-output failure
+  assigned to EP-6.
 
 
 ## Surprises & Discoveries
