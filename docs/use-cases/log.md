@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-09-20
+* **Delivery**: UC-1 deterministic-session-composition and secure-runtime-bindings are delivered by EP-2 and EP-3: opaque complete-entry fragments render deterministically, while resolved plain and secret bindings reach Hurl through protected files rather than source or argv.
+* **Delivery**: All UC-4 features are delivered by EP-2 and EP-3: native Hurl scenarios execute without semantic rewriting, child streams and exit status remain faithful, and the workbench's runtime boundary does not disclose declared secrets.
+
 ## 2026-09-19
 * **Delivery**: UC-1 typed-reusable-workspace is delivered by EP-1 (docs/plans/1-define-the-typed-hurl-workspace-contract.md): the full fixture validates one OAuth fragment shared by two workflows, and list shows both.
 

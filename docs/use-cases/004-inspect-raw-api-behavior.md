@@ -38,7 +38,7 @@ jobs:
 features:
   - name: faithful-client-output
     description: Preserve Hurl stdout, stderr, and exact exit status whenever the child process starts.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A failing diagnostic scenario returns the same Hurl exit status and byte-preserved captured streams as direct execution under the same controlled inputs.
@@ -46,7 +46,7 @@ features:
       - diagnose-below-the-typed-client
   - name: native-hurl-scenario-support
     description: Keep request syntax, captures, assertions, comments, and response inspection in opaque Hurl fragments.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A bespoke capture-and-assert scenario renders without semantic rewriting and executes through the same runner as ordinary workflows.
@@ -54,7 +54,7 @@ features:
       - preserve-bespoke-debug-scenario
   - name: redacted-runtime-boundary
     description: Allow raw response inspection while preventing declared secrets from appearing in argv or workbench diagnostics.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: Diagnostic output retains the child response unchanged, while workbench-generated errors and process metadata redact declared secret values.

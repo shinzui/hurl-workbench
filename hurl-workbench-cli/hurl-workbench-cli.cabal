@@ -38,8 +38,10 @@ library
   hs-source-dirs: src
   exposed-modules:
     HurlWorkbench.Cli
+    HurlWorkbench.Cli.Command.Doctor
     HurlWorkbench.Cli.Command.List
     HurlWorkbench.Cli.Command.Render
+    HurlWorkbench.Cli.Command.Run
     HurlWorkbench.Cli.Command.Validate
     HurlWorkbench.Cli.Options
     HurlWorkbench.Cli.Output
@@ -48,6 +50,7 @@ library
   build-depends:
     base >=4.20 && <5,
     bytestring >=0.11 && <0.13,
+    containers >=0.6 && <0.8,
     directory ^>=1.3,
     filepath >=1.4 && <1.6,
     generic-lens ^>=2.3,

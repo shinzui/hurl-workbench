@@ -52,7 +52,9 @@ later plans.
 - [x] (2026-09-20 18:48 PDT) Milestone 2: built the secure, bracketed Hurl process adapter,
   shared fixture server, and capability detection. All 47 core tests and 17 CLI tests pass,
   including a live Hurl 8.0.1 client/test run.
-- [ ] Milestone 3: expose `run`, `test`, and `doctor`.
+- [x] (2026-09-20) Milestone 3: exposed grouped `run`, `test`, and `doctor` commands;
+  all 47 core and 22 CLI tests pass, real Hurl 8.0.1 client/test smoke runs succeed,
+  and a malformed invocation returns workbench status 2.
 
 
 ## Surprises & Discoveries
@@ -112,11 +114,27 @@ later plans.
   the exact typed target prevents permissive umasks from exposing output or diagnostics.
   Date: 2026-09-20
 
+- Decision: Reserve exit status 2 for invocation, workspace, and binding failures and status
+  3 for dependency or spawn failures, while propagating every started Hurl process status
+  exactly.
+  Rationale: Callers can distinguish workbench preflight from toolchain availability without
+  the wrapper inventing a replacement status for Hurl failures.
+  Date: 2026-09-20
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+EP-3 is complete. Plain and secret values resolve through a deterministic, validated
+precedence model; protected temporary files carry them across a non-shell process boundary;
+ambient `HURL_*` controls are removed; and typed output/report policies support both faithful
+interactive runs and isolated future batch runs. The CLI now exposes `run workflow`, `test
+workflow`, and workspace-independent `doctor` commands with intent-grouped help and distinct
+preflight/dependency statuses. Fake-process tests cover argument, environment, permission,
+cleanup, spawn, and exact-exit behavior, while the shared WAI fixture proves client and test
+mode against Hurl 8.0.1. The durable boundary is recorded in
+`docs/adr/4-secure-hurl-process-boundary.md`; EP-4 can consume `HurlRunner` without constructing
+raw process arguments.
 
 
 ## Context and Orientation
@@ -496,3 +514,7 @@ option-group pattern.
 
 2026-09-20: Reconciled the execution plan with EP-2's completed resolver, renderer, Hurlfmt,
 dependency-error, and ADR interfaces so EP-3 reuses the concrete boundary rather than recreating it.
+
+2026-09-20: Implemented all three milestones, added the secure process-boundary ADR and shared
+fixture server, verified 69 automated tests plus real Hurl client/test/doctor smoke runs, and
+recorded the delivered UC-1 and UC-4 feature slices.

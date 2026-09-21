@@ -129,7 +129,7 @@ mutations and special perimeter cases.
 | EP-7 | Document and Ratify Hurl Workbench Use Cases | `docs/plans/7-document-and-ratify-hurl-workbench-use-cases.md` | None | None | Complete |
 | EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Complete |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
-| EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | In Progress |
+| EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Not Started |
 | EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
@@ -197,10 +197,12 @@ constraint concrete must create or update the corresponding ADR.
   fragment composition, line-span provenance, Hurlfmt syntax validation, and exact stdout or
   atomic-file rendering; 49 tests pass across both packages and the live Hurlfmt 8.0.1 pipelines
   succeed.
-- [ ] (2026-09-20 18:48 PDT) EP-3 is in progress; binding resolution and the secure single-run
-  Hurl adapter are complete, and the CLI surface is the active milestone. EP-4 through EP-6
-  remain not started. The initiative-wide Nix gate also has a pre-existing multi-package
-  default-output failure assigned to EP-6.
+- [x] (2026-09-20) EP-3 delivered deterministic binding resolution, protected variable and
+  secret transport, the typed single-run Hurl adapter, capability detection, a shared fixture
+  server, and grouped `run`, `test`, and `doctor` commands. All 47 core and 22 CLI tests pass,
+  and real Hurl 8.0.1 client/test/doctor smoke runs succeed.
+- [ ] EP-4 through EP-6 remain not started. The initiative-wide Nix gate also has a
+  pre-existing multi-package default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries
@@ -291,6 +293,15 @@ constraint concrete must create or update the corresponding ADR.
   them in case declaration order instead of treating stderr as failure-only output.
   Evidence: the EP-3 live client/test integration case in `hurl-workbench-cli/test/Main.hs`.
 
+- Observation: EP-3's concrete shared surface is
+  `HurlWorkbench.Parameter.{Properties,Resolve}`, `HurlWorkbench.Hurl.{Capabilities,Run}`,
+  and the CLI `Run`/`Doctor` command modules. `HurlRunner` accepts fully rendered source,
+  resolved bindings, typed Hurl options, output policy, and report targets; callers receive
+  either a typed start failure or a result retaining exact child status and optional captured
+  streams. EP-4 must prepare this request rather than recreating binding or argv logic.
+  Evidence: `docs/plans/3-execute-hurl-workflows-securely.md` and
+  `docs/adr/4-secure-hurl-process-boundary.md`.
+
 
 ## Decision Log
 
@@ -361,9 +372,12 @@ covering the initiative's primary workflows. EP-1 is complete: the workspace con
 `docs/adr/2-validated-workspace-boundary.md`. EP-2 is complete: reusable whole-entry fragments
 render deterministically, retain source provenance, and are parsed by Hurlfmt without introducing
 a competing grammar; that boundary is recorded in
-`docs/adr/3-opaque-hurl-fragment-composition.md`. EP-3 through EP-6 remain pending and must preserve
-the ratified acceptance contracts and EP-2 interfaces. The initiative-wide Nix package gate remains
-pending EP-6's documented multi-package repair.
+`docs/adr/3-opaque-hurl-fragment-composition.md`. EP-3 is complete: declared bindings cross an
+owner-only file boundary into one faithful Hurl invocation, and the public CLI exposes client,
+test, and dependency-diagnostic flows; the boundary is recorded in
+`docs/adr/4-secure-hurl-process-boundary.md`. EP-4 through EP-6 remain pending and must preserve
+the ratified acceptance contracts and completed interfaces. The initiative-wide Nix package gate
+remains pending EP-6's documented multi-package repair.
 
 
 ## Revision Note
@@ -387,3 +401,7 @@ implementable plan.
 concrete resolver/render/Hurlfmt interfaces, corrected the pinned treefmt CI command across affected
 plans, and routed the discovered multi-package Nix default failure to EP-6. EP-3 is now the next
 implementable child plan.
+
+2026-09-20: Implemented EP-3, marked it Complete, recorded the secure Hurl process boundary and
+concrete runner/binding interfaces, and marked the delivered UC-1 and UC-4 feature slices. EP-4 is
+now the next implementable child plan.

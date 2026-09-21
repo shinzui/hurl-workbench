@@ -46,7 +46,7 @@ features:
       - remove-repeated-authentication-setup
   - name: deterministic-session-composition
     description: Compose complete Hurl entries in declared order while preserving capture and cookie-session flow.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: Rendering either workflow emits the shared OAuth entry once, then its selected resource entry, with byte-stable output and source provenance.
@@ -55,7 +55,7 @@ features:
       - review-exact-request-program
   - name: secure-runtime-bindings
     description: Resolve declared plain and secret values without exposing secret material in argv or rendered source.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A workflow executes with required OAuth secrets supplied through protected files; process argv, rendered output, and diagnostics contain no secret values.
