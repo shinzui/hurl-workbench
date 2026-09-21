@@ -46,7 +46,11 @@ of being forced into a generic abstraction.
 ## Progress
 
 
-(No implementation work has started.)
+- [x] (2026-09-20) Milestone 1: resolved workflow, recipe, and matrix selections through
+  ordered committed binding layers and prepared every case as the shared `RunRequest`
+  shape before spawn; all 50 core and 22 CLI tests pass.
+- [ ] Milestone 2: add bounded matrix execution and artifacts.
+- [ ] Milestone 3: expose recipe and matrix UX plus the representative vendor example.
 
 
 ## Surprises & Discoveries
@@ -56,6 +60,13 @@ of being forced into a generic abstraction.
   flag, for a no-cache fail-on-change validation run. The final acceptance command in this plan
   has been corrected to `nix fmt -- --ci`.
   Evidence: EP-2's repository acceptance run on 2026-09-20.
+
+- Observation: EP-3's parameter resolver can accept EP-4 binding layers without learning
+  recipe or matrix types by representing each layer as a plain-value map plus a redacted,
+  human-readable `BindingSource`. Runtime explicit/file inputs stay above the ordered
+  layers, while declared environments and defaults stay below them.
+  Evidence: `HurlWorkbench.Parameter.Resolve` and the precedence table in
+  `HurlWorkbench.Run.SelectionTest`.
 
 
 ## Decision Log

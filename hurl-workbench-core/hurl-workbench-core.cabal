@@ -43,6 +43,9 @@ library
     HurlWorkbench.Parameter.Properties
     HurlWorkbench.Parameter.Resolve
     HurlWorkbench.Prelude
+    HurlWorkbench.Run.Batch
+    HurlWorkbench.Run.Prepare
+    HurlWorkbench.Run.Selection
     HurlWorkbench.Workflow.Render
     HurlWorkbench.Workflow.Resolve
     HurlWorkbench.Workspace.Context
@@ -80,6 +83,7 @@ test-suite hurl-workbench-core-test
   other-modules:
     HurlWorkbench.Hurl.RunTest
     HurlWorkbench.Parameter.ParameterTest
+    HurlWorkbench.Run.SelectionTest
     HurlWorkbench.Workflow.WorkflowTest
     HurlWorkbench.Workspace.NameSafetyTest
     HurlWorkbench.Workspace.WorkspaceTest

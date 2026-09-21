@@ -130,7 +130,7 @@ mutations and special perimeter cases.
 | EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Complete |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
-| EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Not Started |
+| EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | In Progress |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Not Started |
 | EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
 
@@ -201,8 +201,10 @@ constraint concrete must create or update the corresponding ADR.
   secret transport, the typed single-run Hurl adapter, capability detection, a shared fixture
   server, and grouped `run`, `test`, and `doctor` commands. All 47 core and 22 CLI tests pass,
   and real Hurl 8.0.1 client/test/doctor smoke runs succeed.
-- [ ] EP-4 through EP-6 remain not started. The initiative-wide Nix gate also has a
-  pre-existing multi-package default-output failure assigned to EP-6.
+- [ ] (2026-09-20) EP-4 is in progress; selection expansion, layered binding precedence,
+  and all-cases-before-spawn preparation are complete, with bounded batch execution next.
+  EP-5 and EP-6 remain not started. The initiative-wide Nix gate also has a pre-existing
+  multi-package default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries

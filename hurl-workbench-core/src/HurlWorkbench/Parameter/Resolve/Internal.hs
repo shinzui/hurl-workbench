@@ -4,6 +4,7 @@
 module HurlWorkbench.Parameter.Resolve.Internal
   ( BindingInput (..),
     BindingSource (..),
+    BindingLayer (..),
     SecretValue,
     SecretValueError (..),
     ResolvedBindings (..),
@@ -31,9 +32,18 @@ data BindingSource
   | ExplicitSecretEnvironment !Text
   | VariableFile !FilePath
   | SecretFile !FilePath
+  | CommittedBinding !Text
   | DeclaredEnvironment !Text
   | DefaultValue
   deriving stock (Generic, Eq, Ord, Show)
+
+-- | One committed plain-value layer. Layers are ordered from highest to
+--   lowest precedence. Recipe and matrix types stay outside this module.
+data BindingLayer = BindingLayer
+  { source :: !BindingSource,
+    values :: !(Map ParameterName HurlValueLiteral)
+  }
+  deriving stock (Generic, Eq, Show)
 
 newtype SecretValue = SecretValue Text
   deriving stock (Generic, Eq)

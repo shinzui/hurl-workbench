@@ -3,6 +3,7 @@
 module HurlWorkbench.Parameter.Resolve
   ( BindingInput (..),
     BindingSource (..),
+    BindingLayer (..),
     SecretValue,
     SecretValueError (..),
     ResolvedBindings (..),
@@ -11,7 +12,9 @@ module HurlWorkbench.Parameter.Resolve
     emptyBindingInput,
     mkSecretValue,
     resolveParameters,
+    resolveParametersWithLayers,
     resolveWorkflowBindings,
+    resolveWorkflowBindingsWithLayers,
     renderBindingError,
     renderBindingIssue,
   )
@@ -45,8 +48,18 @@ resolveWorkflowBindings :: ValidatedWorkspace -> Workflow -> BindingInput -> IO 
 resolveWorkflowBindings validated workflow input =
   resolveParameters validated (Set.fromList (workflow ^. #parameters)) input
 
+resolveWorkflowBindingsWithLayers :: ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveWorkflowBindingsWithLayers validated workflow layers input =
+  resolveParametersWithLayers validated (Set.fromList (workflow ^. #parameters)) layers input
+
 resolveParameters :: ValidatedWorkspace -> Set ParameterName -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParameters validated selected input = do
+resolveParameters validated selected = resolveParametersWithLayers validated selected []
+
+-- | Resolve runtime inputs over committed plain-value layers ordered from
+--   highest to lowest precedence. Runtime overrides and variable files remain
+--   above these layers; declared environments and defaults remain below them.
+resolveParametersWithLayers :: ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParametersWithLayers validated selected layers input = do
   loadedVariables <- loadVariableFiles (input ^. #variableFiles)
   loadedSecrets <- loadSecretFiles (input ^. #secretFiles)
   case (loadedVariables, loadedSecrets) of
@@ -57,6 +70,7 @@ resolveParameters validated selected input = do
           fileSecrets = laterWins secretMaps
           explicitVariables = Map.map (,ExplicitVariable) (input ^. #plainOverrides)
           explicitSecrets = Map.mapWithKey (\_ env -> (env, ExplicitSecretEnvironment env)) (input ^. #secretEnvironmentOverrides)
+          committedVariables = map sourcedLayer layers
           parameters = validatedParameters validated
           staticIssues =
             unknownSelected parameters selected
@@ -64,8 +78,9 @@ resolveParameters validated selected input = do
               <> unexpected selected explicitSecrets
               <> unexpected selected fileVariables
               <> unexpected selected fileSecrets
-              <> kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets
-      resolved <- traverse (resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets) (Set.toAscList selected)
+              <> concatMap (unexpected selected) committedVariables
+              <> kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets committedVariables
+      resolved <- traverse (resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables) (Set.toAscList selected)
       let dynamicIssues = concatMap (\(issues, _, _) -> issues) resolved
           allIssues = staticIssues <> dynamicIssues
       pure $ case nonEmpty allIssues of
@@ -76,6 +91,8 @@ resolveParameters validated selected input = do
               { variables = Map.fromList (mapMaybe (\(_, variable, _) -> variable) resolved),
                 secrets = Map.fromList (mapMaybe (\(_, _, secret) -> secret) resolved)
               }
+  where
+    sourcedLayer layer = Map.map (,(layer ^. #source)) (layer ^. #values)
 
 type Sourced value = Map ParameterName (value, BindingSource)
 
@@ -115,21 +132,21 @@ unexpected selected values =
     name `Set.notMember` selected
   ]
 
-kindMismatches :: Map ParameterName Parameter -> Set ParameterName -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [BindingIssue]
-kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets =
+kindMismatches :: Map ParameterName Parameter -> Set ParameterName -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [Sourced HurlValueLiteral] -> [BindingIssue]
+kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets committedVariables =
   concatMap one (Set.toAscList selected)
   where
     one name = case Map.lookup name parameters of
       Nothing -> []
       Just parameter -> case parameter ^. #kind of
         Plain -> [BindingKindMismatch name Secret source | source <- sourcesFor name explicitSecrets <> sourcesFor name fileSecrets]
-        Secret -> [BindingKindMismatch name Plain source | source <- sourcesFor name explicitVariables <> sourcesFor name fileVariables]
+        Secret -> [BindingKindMismatch name Plain source | source <- sourcesFor name explicitVariables <> sourcesFor name fileVariables <> concatMap (sourcesFor name) committedVariables]
 
 sourcesFor :: ParameterName -> Sourced value -> [BindingSource]
 sourcesFor name values = maybe [] (pure . snd) (Map.lookup name values)
 
-resolveOne :: Map ParameterName Parameter -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> ParameterName -> IO ([BindingIssue], Maybe (ParameterName, HurlValueLiteral), Maybe (ParameterName, SecretValue))
-resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets name =
+resolveOne :: Map ParameterName Parameter -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [Sourced HurlValueLiteral] -> ParameterName -> IO ([BindingIssue], Maybe (ParameterName, HurlValueLiteral), Maybe (ParameterName, SecretValue))
+resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables name =
   case Map.lookup name parameters of
     Nothing -> pure ([], Nothing, Nothing)
     Just parameter -> case parameter ^. #kind of
@@ -139,6 +156,7 @@ resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecret
               firstJust
                 [ Right <$> Map.lookup name explicitVariables,
                   Right <$> Map.lookup name fileVariables,
+                  firstLayerValue name committedVariables,
                   environmentValue,
                   Right . (,DefaultValue) <$> parameter ^. #defaultValue
                 ]
@@ -184,6 +202,9 @@ firstJust = \case
   Nothing : rest -> firstJust rest
   Just value : _ -> Just value
 
+firstLayerValue :: ParameterName -> [Sourced value] -> Maybe (Either issue (value, BindingSource))
+firstLayerValue name = firstJust . map (fmap Right . Map.lookup name)
+
 renderBindingError :: BindingError -> Text
 renderBindingError = \case
   BindingFileReadError kind path -> label kind <> " file could not be read: " <> Text.pack path
@@ -217,5 +238,6 @@ renderSource = \case
   ExplicitSecretEnvironment env -> "--secret-env " <> env
   VariableFile path -> "variables file " <> Text.pack path
   SecretFile path -> "secrets file " <> Text.pack path
+  CommittedBinding label -> "committed " <> label
   DeclaredEnvironment env -> "declared environment " <> env
   DefaultValue -> "the workspace default"
