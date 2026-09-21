@@ -14,6 +14,7 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Text.IO qualified as Text.IO
 import HurlWorkbench.Cli.Command.Run (buildExecutionInputs)
+import HurlWorkbench.Cli.Error (cliErrors, cliFailure)
 import HurlWorkbench.Cli.Options
 import HurlWorkbench.Cli.Output (CommandResult (..))
 import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
@@ -45,16 +46,16 @@ runMatrixWith ::
   IO CommandResult
 runMatrixWith detectCapabilities validateRendered global currentDirectory matrixOptions =
   loadValidatedWorkspace global currentDirectory >>= \case
-    Left errors -> pure (workbenchFailure 2 errors)
+    Left errors -> pure (cliFailure 2 errors)
     Right validated -> case lookupMatrix (matrixOptions ^. #matrix) validated of
-      Nothing -> pure (workbenchFailure 2 ["error: unknown matrix \"" <> unMatrixName (matrixOptions ^. #matrix) <> "\""])
+      Nothing -> pure (cliFailure 2 ["unknown matrix \"" <> unMatrixName (matrixOptions ^. #matrix) <> "\""])
       Just matrixDefinition -> case validateMatrixOptions matrixOptions of
-        Just problem -> pure (workbenchFailure 2 ["error: " <> problem])
+        Just problem -> pure (cliFailure 2 [problem])
         Nothing -> case buildInputs matrixOptions of
-          Left errors -> pure (workbenchFailure 2 (map ("error: " <>) errors))
+          Left errors -> pure (cliErrors 2 errors)
           Right (bindingInput, hurlOptions) ->
             detectCapabilities >>= \case
-              Left err -> pure (workbenchFailure 3 ["error: " <> renderDependencyError err])
+              Left err -> pure (cliFailure 3 [renderDependencyError err])
               Right capabilities ->
                 prepareSelectionWith
                   validateRendered
@@ -66,19 +67,19 @@ runMatrixWith detectCapabilities validateRendered global currentDirectory matrix
                   >>= \case
                     Left errors ->
                       pure
-                        ( workbenchFailure
+                        ( cliErrors
                             (preparationExitCode errors)
-                            (map (("error: " <>) . renderPreparationError) (toList errors))
+                            (map (("preflight: " <>) . renderPreparationError) (toList errors))
                         )
                     Right prepared
                       | any (mutatingDenied (matrixOptions ^. #allowMutating) . view #safety) prepared ->
-                          pure (workbenchFailure 2 ["error: mutating matrix requires --allow-mutating"])
+                          pure (cliFailure 2 ["mutating matrix requires --allow-mutating"])
                       | isJust (matrixOptions ^. #hurl . #curlExportPath) && length prepared > 1 ->
-                          pure (workbenchFailure 2 ["error: --curl has one path and cannot be shared by multiple matrix cases"])
+                          pure (cliFailure 2 ["--curl has one path and cannot be shared by multiple matrix cases"])
                       | otherwise -> do
                           built <- buildCases currentDirectory matrixOptions prepared
                           case built of
-                            Left errors -> pure (workbenchFailure 2 (map (("error: " <>) . renderArtifactError) (toList errors)))
+                            Left errors -> pure (cliErrors 2 (map renderArtifactError (toList errors)))
                             Right batchCases -> do
                               let failFast = fromMaybe (matrixDefinition ^. #failFast) (matrixOptions ^. #failFastOverride)
                                   batchOptions = BatchOptions (matrixOptions ^. #jobs) failFast
@@ -185,11 +186,3 @@ mutatingDenied :: Bool -> SafetyDisposition -> Bool
 mutatingDenied allowed = \case
   Classified Mutating -> not allowed
   _ -> False
-
-workbenchFailure :: Int -> [Text] -> CommandResult
-workbenchFailure status errors =
-  CommandResult
-    { stdoutLines = [],
-      stderrLines = errors,
-      exitCode = ExitFailure status
-    }

@@ -8,8 +8,10 @@ import Data.Text.IO qualified as Text.IO
 import Data.Version (makeVersion)
 import FixtureServer qualified
 import HurlWorkbench.Cli (runCommandWithDependencies, runCommandWithHurlfmt)
+import HurlWorkbench.Cli.Help (helpPreferences)
 import HurlWorkbench.Cli.Options
 import HurlWorkbench.Cli.Output (CommandResult (..))
+import HurlWorkbench.Cli.Version (versionText)
 import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
 import HurlWorkbench.Hurl.Capabilities
 import HurlWorkbench.Hurl.Format
@@ -25,7 +27,7 @@ import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
 import HurlWorkbench.Workspace.Context (lookupWorkflow)
 import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), SuiteName (..), WorkflowName (..), mkHurlValueLiteral)
 import Network.Wai.Handler.Warp (testWithApplication)
-import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, renderFailure)
+import Options.Applicative (CompletionResult (..), ParserResult (..), defaultPrefs, execParserPure, renderFailure)
 import System.Directory (canonicalizePath, doesPathExist, getPermissions, setOwnerExecutable, setPermissions)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -44,6 +46,9 @@ fixtureManifest name = fixtureDir name </> "hurl-workbench.dhall"
 
 parse :: [String] -> ParserResult Options
 parse = execParserPure defaultPrefs parserInfo
+
+parsePublic :: [String] -> ParserResult Options
+parsePublic = execParserPure (helpPreferences 80) parserInfo
 
 parserTests :: TestTree
 parserTests =
@@ -167,7 +172,7 @@ parserTests =
         for_ ["Suite control", "Service lifecycle", "Reports", "Bindings", "Advanced Hurl arguments"] $ \heading ->
           assertBool ("mentions " <> heading) (heading `isIn` helpText),
       testCase "help lists every top-level command and no longer mentions hello" $ do
-        helpText <- case parse ["--help"] of
+        helpText <- case parsePublic ["--help"] of
           Failure failure -> pure (fst (renderFailure failure "hurl-workbench"))
           _ -> assertFailure "expected --help to produce help text"
         assertBool "mentions validate" ("validate" `isIn` helpText)
@@ -177,8 +182,40 @@ parserTests =
         assertBool "mentions test" ("test" `isIn` helpText)
         assertBool "mentions matrix" ("matrix" `isIn` helpText)
         assertBool "mentions doctor" ("doctor" `isIn` helpText)
+        assertBool "mentions completions" ("completions" `isIn` helpText)
         assertBool "mentions --workspace" ("--workspace" `isIn` helpText)
         assertBool "does not mention hello" (not ("hello" `isIn` helpText))
+        assertGolden "test/golden/top-level-help.txt" (Text.pack helpText),
+      testCase "empty and invalid invocations include contextual help" $ do
+        for_ [[], ["unknown-command"]] $ \arguments ->
+          case parsePublic arguments of
+            Failure parserFailure -> do
+              let rendered = fst (renderFailure parserFailure "hurl-workbench")
+              assertBool "contains usage" ("Usage:" `isIn` rendered)
+              assertBool "contains commands" ("Available commands:" `isIn` rendered)
+            _ -> assertFailure "expected a help-bearing parse failure",
+      testCase "version includes package version and a build revision" $
+        case parsePublic ["--version"] of
+          Failure parserFailure -> do
+            let rendered = fst (renderFailure parserFailure "hurl-workbench")
+            assertBool "matches the version module" (versionText `isIn` rendered)
+            assertBool "includes the package version" ("0.1.0.0" `isIn` rendered)
+          _ -> assertFailure "expected the version option to terminate parsing",
+      testCase "public completion commands generate scripts for every shell" $ do
+        for_ [("bash", "complete -o filenames"), ("zsh", "#compdef hurl-workbench"), ("fish", "complete --no-files")] $ \(shell, marker) -> do
+          options <- successOf (parse ["completions", shell])
+          result <- runTestCommand (options ^. #global) "." (options ^. #cmd)
+          result ^. #exitCode @?= ExitSuccess
+          let script = Text.unlines (result ^. #stdoutLines)
+          assertBool (shell <> " script names the stable executable") ("hurl-workbench" `Text.isInfixOf` script)
+          assertBool (shell <> " script uses the completion protocol") ("--bash-completion-index" `Text.isInfixOf` script)
+          assertBool (shell <> " script has its native marker") (Text.pack marker `Text.isInfixOf` script),
+      testCase "hidden completion protocol follows the public parser" $
+        case parsePublic ["--bash-completion-index", "1", "--bash-completion-word", "hurl-workbench", "--bash-completion-word", "c"] of
+          CompletionInvoked (CompletionResult complete) -> do
+            candidates <- complete "hurl-workbench"
+            assertBool "offers completions" ("completions" `isIn` candidates)
+          _ -> assertFailure "expected a completion query"
     ]
   where
     isIn needle haystack = Text.pack needle `Text.isInfixOf` Text.pack haystack
@@ -258,7 +295,8 @@ commandTests =
             (RenderCommand (RenderOptions (SelectWorkflow (WorkflowName "missing")) Nothing False))
         result ^. #exitCode @?= ExitFailure 1
         result ^. #stdoutLines @?= []
-        assertBool "names the unknown workflow" (any (Text.isInfixOf "unknown workflow \"missing\"") (result ^. #stderrLines)),
+        assertBool "names the unknown workflow" (any (Text.isInfixOf "unknown workflow \"missing\"") (result ^. #stderrLines))
+        assertGolden "test/golden/unknown-workflow.txt" (Text.unlines (result ^. #stderrLines)),
       testCase "render recipe explains binding sources without values" $ do
         result <-
           runTestCommand
@@ -408,6 +446,9 @@ runTestCommand =
     (pure (Right (HurlfmtCapabilities (HurlfmtExecutable "unused-in-tests") (makeVersion [8, 0, 1]))))
     (\_capabilities _rendered -> pure (Right ()))
     (\_capabilities _validated -> pure (Right []))
+
+assertGolden :: FilePath -> Text -> IO ()
+assertGolden path actual = Text.IO.readFile path >>= (\expected -> Text.stripEnd actual @?= Text.stripEnd expected)
 
 runExecutionCommand :: Either DependencyError HurlCapabilities -> Command -> IO CommandResult
 runExecutionCommand = runExecutionCommandAt (fixtureManifest "execution")

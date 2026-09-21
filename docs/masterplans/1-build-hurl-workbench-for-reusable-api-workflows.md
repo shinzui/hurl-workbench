@@ -132,7 +132,7 @@ mutations and special perimeter cases.
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Complete |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Complete |
-| EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
+| EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | In Progress |
 
 Status values are Not Started, In Progress, Complete, and Cancelled. Every child plan
 inherits intention `intention_01kytnndmnef28f9ksadwfac7h` in its frontmatter.
@@ -210,8 +210,9 @@ constraint concrete must create or update the corresponding ADR.
   and the fixture-backed managed-service example. All 64 core and 29 CLI tests pass; the real safe
   suite produced JUnit/JSON reports, the write gate was proven both denied and authorized, and the
   managed port was closed afterward.
-- [ ] EP-6 remains not started. The initiative-wide Nix gate also has a pre-existing multi-package
-  default-output failure assigned to EP-6.
+- [ ] EP-6 is in progress. CLI hardening is implemented and under acceptance; documentation,
+  packaging, the pre-existing multi-package Nix default-output repair, and release acceptance
+  remain.
 
 
 ## Surprises & Discoveries

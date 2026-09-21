@@ -191,7 +191,11 @@ decodeOutput = Text.Encoding.decodeUtf8With lenientDecode . LazyByteString.toStr
 renderDependencyError :: DependencyError -> Text
 renderDependencyError = \case
   DependencyNotFound name path ->
-    "required dependency " <> quote name <> " was not found or could not be started at " <> Text.pack path
+    "required dependency "
+      <> quote name
+      <> " was not found or could not be started at "
+      <> Text.pack path
+      <> ". Install Hurl 8.0 or newer and ensure both hurl and hurlfmt are on PATH"
   DependencyProbeFailed name exitCode message ->
     "dependency " <> quote name <> " failed its version probe with " <> Text.pack (show exitCode) <> detail message
   DependencyVersionUnrecognized name output ->
@@ -201,7 +205,10 @@ renderDependencyError = \case
 
 renderHurlfmtError :: HurlfmtError -> Text
 renderHurlfmtError = \case
-  HurlfmtNotFound path -> "hurlfmt could not be started at " <> Text.pack path
+  HurlfmtNotFound path ->
+    "hurlfmt could not be started at "
+      <> Text.pack path
+      <> ". Install Hurl 8.0 or newer and ensure both hurl and hurlfmt are on PATH"
   InvalidHurl name sourceSpan diagnostics ->
     "workflow "
       <> quote (unWorkflowName name)

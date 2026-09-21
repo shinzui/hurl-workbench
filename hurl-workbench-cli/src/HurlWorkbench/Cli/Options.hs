@@ -7,6 +7,7 @@
 -- > hurl-workbench [--workspace FILE] test (workflow|recipe) NAME [OPTIONS]
 -- > hurl-workbench [--workspace FILE] test suite NAME [OPTIONS]
 -- > hurl-workbench [--workspace FILE] matrix NAME [OPTIONS]
+-- > hurl-workbench completions (bash|zsh|fish)
 -- > hurl-workbench doctor
 module HurlWorkbench.Cli.Options
   ( Options (..),
@@ -21,6 +22,7 @@ module HurlWorkbench.Cli.Options
     CliHurlOptions (..),
     defaultCliHurlOptions,
     ListCategory (..),
+    CompletionShell (..),
     allListCategories,
     listCategoryName,
     parseListCategory,
@@ -29,6 +31,7 @@ module HurlWorkbench.Cli.Options
 where
 
 import Data.Text qualified as Text
+import HurlWorkbench.Cli.Version (versionText)
 import HurlWorkbench.Hurl.Run (HurlRunMode (..), HurlVerbosity (..))
 import HurlWorkbench.Prelude hiding (argument)
 import HurlWorkbench.Run.Batch (PositiveInt, mkPositiveInt)
@@ -50,6 +53,7 @@ import Options.Applicative
     helper,
     hsubparser,
     info,
+    infoOption,
     long,
     many,
     metavar,
@@ -89,6 +93,7 @@ data Command
   | TestCommand !ExecuteOptions
   | MatrixCommand !MatrixOptions
   | SuiteCommand !SuiteCommandOptions
+  | CompletionsCommand !CompletionShell
   | DoctorCommand
   deriving stock (Generic, Eq, Show)
 
@@ -199,6 +204,10 @@ data ListCategory
   | SuitesCategory
   deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
 
+-- | Supported public shell-completion formats.
+data CompletionShell = Bash | Zsh | Fish
+  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
+
 allListCategories :: [ListCategory]
 allListCategories = [minBound .. maxBound]
 
@@ -229,11 +238,13 @@ parseListCategory raw =
 parserInfo :: ParserInfo Options
 parserInfo =
   info
-    (optionsParser <**> helper)
+    (optionsParser <**> helper <**> versionOption)
     ( fullDesc
         <> header "hurl-workbench - compose, explore, and test reusable Hurl workflows"
         <> progDesc "Keep each Hurl entry once, combine entries into named workflows, and validate the workspace that describes them."
     )
+  where
+    versionOption = infoOption versionText (long "version" <> help "Show package version and build revision")
 
 optionsParser :: Parser Options
 optionsParser = Options <$> globalOptionsParser <*> commandParser
@@ -290,12 +301,30 @@ commandParser =
               (progDesc "Execute every declared case in one named matrix")
           )
         <> command
+          "completions"
+          ( info
+              (CompletionsCommand <$> completionShellParser)
+              (progDesc "Generate a completion script for Bash, Zsh, or Fish")
+          )
+        <> command
           "doctor"
           ( info
               (pure DoctorCommand)
               (progDesc "Report Hurl and Hurlfmt paths, versions, and support status")
           )
     )
+
+completionShellParser :: Parser CompletionShell
+completionShellParser =
+  argument
+    (eitherReader parseShell)
+    (metavar "SHELL" <> completeWith ["bash", "zsh", "fish"] <> help "One of bash, zsh, or fish")
+  where
+    parseShell = \case
+      "bash" -> Right Bash
+      "zsh" -> Right Zsh
+      "fish" -> Right Fish
+      other -> Left ("unknown shell " <> show other <> "; expected bash, zsh, or fish")
 
 renderCommandParser :: Parser Command
 renderCommandParser =

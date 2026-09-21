@@ -1,0 +1,27 @@
+hurl-workbench - compose, explore, and test reusable Hurl workflows
+
+Usage: hurl-workbench [--workspace FILE] COMMAND [--version]
+
+  Keep each Hurl entry once, combine entries into named workflows, and validate
+  the workspace that describes them.
+
+Workspace
+  --workspace FILE         Workspace manifest to use instead of discovering
+                           hurl-workbench.dhall from the current directory
+                           upward
+
+Available options:
+  -h,--help                Show this help text
+  --version                Show package version and build revision
+
+Available commands:
+  validate                 Check the workspace and report every problem at once
+  list                     List the named entities in the workspace
+  render                   Compose and syntax-check inspectable Hurl source
+  run                      Execute one workflow in Hurl client mode
+  test                     Execute one workflow, recipe, or integration suite in
+                           Hurl test mode
+  matrix                   Execute every declared case in one named matrix
+  completions              Generate a completion script for Bash, Zsh, or Fish
+  doctor                   Report Hurl and Hurlfmt paths, versions, and support
+                           status

@@ -7,6 +7,7 @@ module HurlWorkbench.Cli
   )
 where
 
+import Data.Text qualified as Text
 import HurlWorkbench.Cli.Command.Doctor (runDoctorWith)
 import HurlWorkbench.Cli.Command.List (runList)
 import HurlWorkbench.Cli.Command.Matrix (runMatrixWith)
@@ -14,8 +15,9 @@ import HurlWorkbench.Cli.Command.Render (runRenderWith)
 import HurlWorkbench.Cli.Command.Run (runExecuteWith)
 import HurlWorkbench.Cli.Command.Suite (runSuiteCommandWith)
 import HurlWorkbench.Cli.Command.Validate (runValidateWith)
-import HurlWorkbench.Cli.Options (Command (..), GlobalOptions, Options (..), parserInfo)
-import HurlWorkbench.Cli.Output (CommandResult, emitResult)
+import HurlWorkbench.Cli.Help (helpPreferences, resolveHelpColumns)
+import HurlWorkbench.Cli.Options (Command (..), CompletionShell (..), GlobalOptions, Options (..), parserInfo)
+import HurlWorkbench.Cli.Output (CommandResult, emitResult, success)
 import HurlWorkbench.Hurl.Capabilities (HurlCapabilities, detectHurlCapabilities)
 import HurlWorkbench.Hurl.Format
   ( DependencyError,
@@ -27,36 +29,23 @@ import HurlWorkbench.Hurl.Format
     validateWorkspaceSyntax,
   )
 import HurlWorkbench.Hurl.Run (HurlRunMode (..))
+import HurlWorkbench.Prelude (Text)
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context (ValidatedWorkspace)
-import Options.Applicative
-  ( CompletionResult (..),
-    ParserResult (..),
-    defaultPrefs,
-    execParserPure,
-    renderFailure,
+import Options.Applicative (customExecParser)
+import Options.Applicative.BashCompletion
+  ( bashCompletionScript,
+    fishCompletionScript,
+    zshCompletionScript,
   )
 import System.Directory (getCurrentDirectory)
-import System.Environment (getArgs, getProgName)
-import System.Exit (ExitCode (..), exitSuccess, exitWith)
-import System.IO (hPutStrLn, stderr)
 
 -- | Parse argv, run the command from the current directory, print its
 --   output, and exit with its status.
 runCli :: IO ()
 runCli = do
-  arguments <- getArgs
-  program <- getProgName
-  Options {global, cmd} <- case execParserPure defaultPrefs parserInfo arguments of
-    Success options -> pure options
-    Failure parserFailure -> do
-      let (message, originalExit) = renderFailure parserFailure program
-      case originalExit of
-        ExitSuccess -> putStrLn message >> exitSuccess
-        ExitFailure _ -> hPutStrLn stderr message >> exitWith (ExitFailure 2)
-    CompletionInvoked completion -> do
-      execCompletion completion program >>= putStr
-      exitSuccess
+  helpColumns <- resolveHelpColumns
+  Options {global, cmd} <- customExecParser (helpPreferences helpColumns) parserInfo
   currentDirectory <- getCurrentDirectory
   runCommand global currentDirectory cmd >>= emitResult
 
@@ -106,4 +95,15 @@ runCommandWithDependencies detectHurlfmt detectHurl validateRendered validateSyn
   TestCommand options -> runExecuteWith detectHurl validateRendered global currentDirectory TestMode options
   MatrixCommand options -> runMatrixWith detectHurl validateRendered global currentDirectory options
   SuiteCommand options -> runSuiteCommandWith detectHurl validateRendered global currentDirectory options
+  CompletionsCommand shell -> pure (success (completionLines shell))
   DoctorCommand -> runDoctorWith detectHurl
+
+completionLines :: CompletionShell -> [Text]
+completionLines shell =
+  Text.lines . Text.pack $
+    case shell of
+      Bash -> bashCompletionScript commandName commandName
+      Zsh -> zshCompletionScript commandName commandName
+      Fish -> fishCompletionScript commandName commandName
+  where
+    commandName = "hurl-workbench"

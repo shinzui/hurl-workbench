@@ -41,11 +41,31 @@ integration, both examples, schema compatibility, and package contents.
 
 ## Progress
 
-
-(No implementation work has started.)
+- [x] (2026-09-20) Re-read all repository ADRs and the applicable Haskell Jitsurei CLI
+  patterns; verified dependency APIs in the Mori corpus and current release metadata upstream.
+- [x] (2026-09-20) Milestone 1 complete: terminal-aware help-on-error/help-on-empty,
+  revision-aware version output, public Bash/Zsh/Fish completion generation, centralized CLI
+  failure construction, dependency next actions, preflight labeling, and golden/protocol tests
+  pass with 64 core and 33 CLI tests.
+- [ ] Milestone 2: reference documentation and final examples.
+- [ ] Milestone 3: reproducible Nix, Cabal, CI, source distributions, and release commands.
+- [ ] Milestone 4: release acceptance, performance smoke, and initiative closure.
 
 
 ## Surprises & Discoveries
+
+
+- Observation: optparse-applicative 0.19.0.0 exports the requested completion script functions,
+  while its upstream release tag is `0.19.0`; the public generators accept both the executable
+  invocation and completion function/program name. The implementation uses the stable
+  `hurl-workbench` name for both.
+  Evidence: local source at `mori://pcapriotti/optparse-applicative/packages/optparse-applicative`,
+  the authoritative Hackage index, and upstream tag inspection on 2026-09-20.
+
+- Observation: Cabal package version modules must be declared in both `autogen-modules` and
+  `other-modules` for the library stanza under the current Cabal toolchain.
+  Evidence: Cabal rejected the initial declaration as `autogen-not-exposed`; adding the generated
+  module to `other-modules` made the library and all consumers build cleanly.
 
 
 - Observation: `nix flake check` currently fails before building the application because the

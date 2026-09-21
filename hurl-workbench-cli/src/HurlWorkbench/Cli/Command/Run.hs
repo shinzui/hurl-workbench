@@ -11,6 +11,7 @@ import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
+import HurlWorkbench.Cli.Error (cliErrors, cliFailure)
 import HurlWorkbench.Cli.Options
 import HurlWorkbench.Cli.Output (CommandResult (..))
 import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
@@ -24,7 +25,6 @@ import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
 import HurlWorkbench.Workspace.Types
 import HurlWorkbench.Workspace.Validate (isValidEnvironmentName, isValidParameterName)
-import System.Exit (ExitCode (..))
 
 runExecute :: GlobalOptions -> FilePath -> HurlRunMode -> ExecuteOptions -> IO CommandResult
 runExecute = runExecuteWith detectHurlCapabilities validateRenderedWorkflow
@@ -39,12 +39,12 @@ runExecuteWith ::
   IO CommandResult
 runExecuteWith detectCapabilities validateRendered global currentDirectory mode executeOptions =
   loadValidatedWorkspace global currentDirectory >>= \case
-    Left errors -> pure (workbenchFailure 2 errors)
+    Left errors -> pure (cliFailure 2 errors)
     Right validated -> case buildExecutionInputs executeOptions of
-      Left errors -> pure (workbenchFailure 2 (map ("error: " <>) errors))
+      Left errors -> pure (cliErrors 2 errors)
       Right (bindingInput, hurlOptions) ->
         detectCapabilities >>= \case
-          Left err -> pure (workbenchFailure 3 ["error: " <> renderDependencyError err])
+          Left err -> pure (cliFailure 3 [renderDependencyError err])
           Right capabilities ->
             prepareSelectionWith
               validateRendered
@@ -56,13 +56,13 @@ runExecuteWith detectCapabilities validateRendered global currentDirectory mode 
               >>= \case
                 Left errors ->
                   pure
-                    ( workbenchFailure
+                    ( cliErrors
                         (preparationExitCode errors)
-                        (map (("error: " <>) . renderPreparationError) (toList errors))
+                        (map (("preflight: " <>) . renderPreparationError) (toList errors))
                     )
                 Right (prepared :| [])
                   | mutatingDenied (executeOptions ^. #allowMutating) (prepared ^. #safety) ->
-                      pure (workbenchFailure 2 ["error: mutating recipe requires --allow-mutating"])
+                      pure (cliFailure 2 ["mutating recipe requires --allow-mutating"])
                   | otherwise -> do
                       executed <-
                         runHurl
@@ -77,16 +77,16 @@ runExecuteWith detectCapabilities validateRendered global currentDirectory mode 
                             }
                       pure $ case executed of
                         Left err ->
-                          workbenchFailure
+                          cliFailure
                             (runStartExitCode err)
-                            ["error: " <> renderRunStartError err]
+                            [renderRunStartError err]
                         Right result ->
                           CommandResult
                             { stdoutLines = [],
                               stderrLines = hurlCapabilityWarnings capabilities,
                               exitCode = result ^. #exitCode
                             }
-                Right _ -> pure (workbenchFailure 2 ["error: run and test accept one workflow or recipe, not a matrix"])
+                Right _ -> pure (cliFailure 2 ["run and test accept one workflow or recipe, not a matrix"])
 
 buildExecutionInputs :: ExecuteOptions -> Either [Text] (BindingInput, HurlOptions)
 buildExecutionInputs executeOptions = buildRuntimeInputs (executeOptions ^. #bindings) (executeOptions ^. #hurl)
@@ -164,14 +164,6 @@ duplicates values = [value | value : _duplicate : _rest <- groupSorted (sort val
 
 unlessEither :: Bool -> err -> Either err ()
 unlessEither condition err = if condition then Right () else Left err
-
-workbenchFailure :: Int -> [Text] -> CommandResult
-workbenchFailure code errors =
-  CommandResult
-    { stdoutLines = [],
-      stderrLines = errors,
-      exitCode = ExitFailure code
-    }
 
 hurlfmtExitCode :: HurlfmtError -> Int
 hurlfmtExitCode = \case

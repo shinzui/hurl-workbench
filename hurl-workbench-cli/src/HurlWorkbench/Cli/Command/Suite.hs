@@ -11,6 +11,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import HurlWorkbench.Cli.Command.Matrix (renderCaseSummary, replayCaptured)
 import HurlWorkbench.Cli.Command.Run (buildRuntimeInputs)
+import HurlWorkbench.Cli.Error (cliErrors, cliFailure)
 import HurlWorkbench.Cli.Options
 import HurlWorkbench.Cli.Output (CommandResult (..))
 import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
@@ -23,7 +24,6 @@ import HurlWorkbench.Service.Resolve (renderServiceError)
 import HurlWorkbench.Suite.Resolve qualified as Suite
 import HurlWorkbench.Suite.Run qualified as Suite
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
-import System.Exit (ExitCode (..))
 import System.FilePath (isAbsolute, (</>))
 
 runSuiteCommand :: GlobalOptions -> FilePath -> SuiteCommandOptions -> IO CommandResult
@@ -38,14 +38,14 @@ runSuiteCommandWith ::
   IO CommandResult
 runSuiteCommandWith detectCapabilities validateRendered global currentDirectory options =
   loadValidatedWorkspace global currentDirectory >>= \case
-    Left errors -> pure (failure 2 errors)
+    Left errors -> pure (cliFailure 2 errors)
     Right validated -> case validateOptions options of
-      Just problem -> pure (failure 2 ["error: " <> problem])
+      Just problem -> pure (cliFailure 2 [problem])
       Nothing -> case buildRuntimeInputs (options ^. #bindings) (options ^. #hurl) of
-        Left errors -> pure (failure 2 (map ("error: " <>) errors))
+        Left errors -> pure (cliErrors 2 errors)
         Right (bindingInput, hurlOptions) ->
           detectCapabilities >>= \case
-            Left err -> pure (failure 3 ["error: " <> renderDependencyError err])
+            Left err -> pure (cliFailure 3 [renderDependencyError err])
             Right capabilities -> do
               let requestedReportDirectory = fmap resolvePath (options ^. #reportDirectory)
                   request =
@@ -72,9 +72,9 @@ runSuiteCommandWith detectCapabilities validateRendered global currentDirectory 
                 request
                 <&> \case
                   Left err ->
-                    failure
+                    cliErrors
                       (preflightExitCode err)
-                      (map (("error: " <>) . Suite.renderSuitePreflightIssue) (toList (err ^. #issues)))
+                      (map (("preflight: " <>) . Suite.renderSuitePreflightIssue) (toList (err ^. #issues)))
                   Right result ->
                     CommandResult
                       { stdoutLines = [],
@@ -111,11 +111,3 @@ renderServiceOutcome = \case
   Nothing -> []
   Just Suite.ServiceStopped -> ["SERVICE stopped"]
   Just (Suite.ServiceFailed err) -> ["SERVICE failed (" <> renderServiceError err <> ")"]
-
-failure :: Int -> [Text] -> CommandResult
-failure status messages =
-  CommandResult
-    { stdoutLines = [],
-      stderrLines = messages,
-      exitCode = ExitFailure status
-    }
