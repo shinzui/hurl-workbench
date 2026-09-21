@@ -131,7 +131,7 @@ mutations and special perimeter cases.
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Complete |
-| EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Not Started |
+| EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | In Progress |
 | EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
 
 Status values are Not Started, In Progress, Complete, and Cancelled. Every child plan
@@ -205,8 +205,8 @@ constraint concrete must create or update the corresponding ADR.
   precedence, bounded fail-fast execution, owner-only response artifacts, safety-gated CLI UX,
   and the fixture-backed vendor/OData example. All 54 core and 27 CLI tests pass, and its real
   three-case client matrix produced distinct responses in declaration order.
-- [ ] EP-5 and EP-6 remain not started. The initiative-wide Nix gate also has a pre-existing
-  multi-package default-output failure assigned to EP-6.
+- [ ] (2026-09-20) EP-5 is in progress; EP-6 remains not started. The initiative-wide Nix
+  gate also has a pre-existing multi-package default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries

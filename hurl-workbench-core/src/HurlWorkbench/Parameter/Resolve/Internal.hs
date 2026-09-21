@@ -1,6 +1,7 @@
 -- | Internal representation of resolved parameter values. The public module
 --   keeps the secret constructor and accessor abstract; the Hurl adapter is
---   the only production consumer of 'secretValueText'.
+--   process-boundary modules are the only production consumers of
+--   'secretValueText'.
 module HurlWorkbench.Parameter.Resolve.Internal
   ( BindingInput (..),
     BindingSource (..),

@@ -43,7 +43,13 @@ bodies.
 ## Progress
 
 
-(No implementation work has started.)
+- [x] (2026-09-20) Milestone 1: resolve and bracket a managed service. `Service.Resolve`
+  restricts URL interpolation to suite-level plain bindings; `Service.Run` bounds readiness,
+  races the callback against leader exit, and performs TERM/KILL process-group cleanup. Seven real
+  process tests cover wrong-status retry, command readiness, timeout, early exit, TERM escalation,
+  and asynchronous cancellation.
+- [ ] Milestone 2: execute named suites with safety gates and reports.
+- [ ] Milestone 3: add suite CLI and an integration-testing example.
 
 
 ## Surprises & Discoveries
@@ -53,6 +59,11 @@ bodies.
   flag, for a no-cache fail-on-change validation run. The final acceptance command in this plan
   has been corrected to `nix fmt -- --ci`.
   Evidence: EP-2's repository acceptance run on 2026-09-20.
+
+- Observation: A per-request HTTP timeout does not bound command readiness and can exceed a shorter
+  overall readiness deadline.
+  Evidence: The lifecycle implementation applies the remaining overall deadline around every probe;
+  a hanging command fixture is stopped at the configured deadline.
 
 
 ## Decision Log
@@ -80,6 +91,12 @@ bodies.
   to be invalid, and one managed service cannot depend ambiguously on case-specific matrix
   values.
   Date: 2026-09-18
+
+- Decision: Own a managed service through a dedicated POSIX process group and delay rethrowing
+  callback exceptions until group cleanup completes.
+  Rationale: Leader-only termination cannot guarantee descendant cleanup, while a masked bracket
+  preserves cleanup on normal return, lifecycle failure, and asynchronous cancellation.
+  Date: 2026-09-20
 
 
 ## Outcomes & Retrospective
