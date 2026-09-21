@@ -19,8 +19,9 @@ the implementation plans. Instead, each use case connects this chain:
     job-to-be-done -> feature acceptance -> public contract -> owning ExecPlan
 
 A use case marked `validated` means its actor, situation, desired outcome, and acceptance
-contract are coherent and backed by an observed workflow. It does **not** mean the feature
-has shipped. Every initial feature remains `planned` until its owning plan records evidence.
+contract are coherent and backed by an observed workflow. It does **not**, by itself, mean
+the feature has shipped; delivery is recorded separately on each feature after its owning
+plan captures implementation evidence. All initial features now have that evidence.
 
 ## Initial contract set
 

@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-20T23:27:16Z
       mode: "implement"
       note: "Started EP-2 coordination and implementation."
+    - model: "gpt-5"
+      harness: "codex-cli"
+      at: 2026-09-21T04:30:00Z
+      mode: "implement"
+      note: "Delivered EP-6 locally and recorded Linux CI as the remaining initiative acceptance gate."
 ---
 
 # Build Hurl Workbench for Reusable API Workflows
@@ -210,9 +215,10 @@ constraint concrete must create or update the corresponding ADR.
   and the fixture-backed managed-service example. All 64 core and 29 CLI tests pass; the real safe
   suite produced JUnit/JSON reports, the write gate was proven both denied and authorized, and the
   managed port was closed afterward.
-- [ ] EP-6 is in progress. CLI hardening is implemented and under acceptance; documentation,
-  packaging, the pre-existing multi-package Nix default-output repair, and release acceptance
-  remain.
+- [ ] EP-6 is in progress. CLI hardening, documentation, examples, reproducible multi-package
+  Nix/Cabal packaging, macOS release acceptance, and the 100-case performance smoke pass. The
+  credential-free Linux workflow is implemented; an actual Linux run remains pending because no
+  revision was pushed and the configured remote Nix builder was unavailable.
 
 
 ## Surprises & Discoveries
@@ -322,6 +328,19 @@ constraint concrete must create or update the corresponding ADR.
   Evidence: `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` and
   `docs/adr/5-bounded-isolated-batch-execution.md`.
 
+- Observation: EP-6's two-package repository cannot use the generated root
+  `callCabal2nix` output, and the locked GHC 9.12.4 package set cannot satisfy the final direct
+  bounds without a coherent fixed-hash dependency cohort. The supported Seihou escape hatch plus
+  an explicit project module now owns both real packages; the shared cohort follow-up is
+  `mori://shinzui/haskell-nix/okf/improvement-requests/concepts/IR-2`.
+  Evidence: `docs/plans/6-harden-document-and-package-the-workbench.md` and
+  `docs/adr/8-self-contained-multi-package-release-builds.md`.
+
+- Observation: local macOS acceptance is complete, but initiative closure still requires the
+  implemented Linux workflow to run. The configured x86_64-linux Nix builder was unavailable over
+  SSH, and executing GitHub Actions requires pushing a revision, which this plan does not authorize.
+  Evidence: EP-6's 2026-09-20 acceptance transcript and living Progress section.
+
 
 ## Decision Log
 
@@ -381,6 +400,13 @@ constraint concrete must create or update the corresponding ADR.
   APIs before implementation; a compile-only dependency would not enforce that review gate.
   Date: 2026-09-18
 
+- Decision: Make each Cabal package and the default Nix output self-contained, with explicit
+  multi-package wiring and synchronized release resources.
+  Rationale: release archives must build outside the repository, and the generated single-root
+  assumption cannot represent this project's core/CLI topology. ADR 8 records the boundary and
+  the deletion path for temporary local dependency pins.
+  Date: 2026-09-20
+
 
 ## Outcomes & Retrospective
 
@@ -402,9 +428,12 @@ in `docs/adr/5-bounded-isolated-batch-execution.md`. EP-5 is complete: managed s
 process-group ownership, whole-suite preflight blocks unsafe or invalid work before spawn, and
 isolated Hurl reports plus redacted summaries preserve truthful outcomes; these boundaries are
 recorded in `docs/adr/6-managed-service-process-group-lifecycle.md` and
-`docs/adr/7-suite-preflight-safety-and-report-isolation.md`. EP-6 remains pending and must preserve
-the ratified acceptance contracts and completed interfaces. The initiative-wide Nix package gate
-remains pending EP-6's documented multi-package repair.
+`docs/adr/7-suite-preflight-safety-and-report-isolation.md`. EP-6 has delivered its CLI, docs,
+examples, release packaging, CI workflow, and macOS acceptance; its self-contained release boundary
+is recorded in `docs/adr/8-self-contained-multi-package-release-builds.md`. The default Nix package,
+flake checks, 65 core tests, 33 CLI tests, live local examples, sdists, and 100-case smoke all pass.
+The initiative remains open only for execution of the same acceptance command on Linux; no package
+or remote release has been published.
 
 
 ## Revision Note
@@ -441,3 +470,10 @@ batch APIs consumed by EP-5. EP-5 is now the next implementable child plan.
 whole-suite preflight/report isolation, delivered all UC-3 features plus the managed integration
 example, and verified real Hurl JUnit/JSON reporting and mutation gating. EP-6 is now the final
 implementable child plan.
+
+2026-09-20: Delivered EP-6's CLI hardening, documentation, examples, explicit multi-package Nix
+output, self-contained source distributions, release recipes, macOS acceptance, and performance
+smoke. Added ADR 8 and raised
+`mori://shinzui/haskell-nix/okf/improvement-requests/concepts/IR-2`. EP-6 and the initiative remain
+In Progress solely because the implemented Linux workflow has not run on an unpublished revision
+and the configured remote builder was unavailable.

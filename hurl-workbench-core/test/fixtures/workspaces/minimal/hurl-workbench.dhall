@@ -1,6 +1,6 @@
 -- The smallest useful workspace, written with record completion so every
 -- defaulted field is omitted.
-let Schema = ../../../../../schema/package.dhall
+let Schema = ../../../../schema/package.dhall
 
 in  Schema.Workspace::{
     , schemaVersion = Schema.schemaVersion

@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-20T23:49:02Z
       mode: "implement"
       note: "Recorded the multi-package Nix default failure discovered during EP-2 acceptance."
+    - model: "gpt-5"
+      harness: "codex-cli"
+      at: 2026-09-21T04:30:00Z
+      mode: "implement"
+      note: "Completed local release packaging and acceptance; recorded the pending external Linux CI run."
 ---
 
 # Harden Document and Package the Workbench
@@ -52,8 +57,12 @@ integration, both examples, schema compatibility, and package contents.
   output. Hurlfmt accepted every checked-in Hurl file; the quick start, vendor matrix and special
   workflows, managed/external safe suite, mutating suite, and perimeter suite passed against the
   local fixture service.
-- [ ] Milestone 3: reproducible Nix, Cabal, CI, source distributions, and release commands.
-- [ ] Milestone 4: release acceptance, performance smoke, and initiative closure.
+- [x] (2026-09-20) Milestone 3 complete: the explicit multi-package Nix output, reproducible
+  development shell, package-local release resources, source-distribution inspection/build,
+  Just recipes, and credential-free Linux workflow all pass their local release gates.
+- [ ] Milestone 4: macOS release acceptance and the 100-fragment/100-case performance and
+  concurrency smoke pass. The Linux workflow is implemented and its output evaluates, but an
+  actual Linux run awaits either a pushed revision or restoration of the configured remote builder.
 
 
 ## Surprises & Discoveries
@@ -79,6 +88,33 @@ integration, both examples, schema compatibility, and package contents.
   multi-package-aware default output before the initiative-wide Nix gate can pass.
   Evidence: EP-2's 2026-09-20 `nix flake check` failed in
   `cabal2nix-hurl-workbench.drv` with “Found neither a .cabal file nor package.yaml.”
+
+- Observation: Overriding the generated default output with `mkForce` does not prevent the broken
+  root `callCabal2nix` expression from being evaluated. Seihou 0.25.0 exposes the supported
+  `nix.builtin-package = false` variable, which removes that definition before the project module
+  declares its two real package outputs.
+  Evidence: the failed override evaluation and the regenerated `nix/haskell.nix` from
+  `mori://shinzui/seihou-modules` on 2026-09-20; artifact-level template URI coverage is pending.
+
+- Observation: The locked GHC 9.12.4 set is one or more releases behind the project's direct
+  Aeson, generic-lens, optparse-applicative, WAI, and Warp bounds. Warp 3.4.16 also moves HTTP/2,
+  HTTP Semantics, time-manager, recv, and network as one coherent dependency cohort.
+  Evidence: each partial Nix graph failed at Cabal configuration until the fixed-hash Hackage
+  replacements in `flake.module.nix` were complete. The shared-registry follow-up is
+  `mori://shinzui/haskell-nix/okf/improvement-requests/concepts/IR-2`.
+
+- Observation: Package-local schema copies are required not only for sdist inclusion but for the
+  fixture imports exercised by an unpacked build. Repository-relative imports that escaped the
+  package tree succeeded locally and failed once Cabal isolated the archive.
+  Evidence: `scripts/check-sdist.sh` reproduced the failure, after which package-relative imports
+  and synchronized schema copies made both unpacked packages build.
+
+- Observation: the configured x86_64-linux Nix builder was registered but unavailable over SSH,
+  so local macOS acceptance could evaluate the Linux output only as far as its build-time import
+  before requiring that builder. The GitHub workflow is the remaining authorized execution path
+  after a revision is pushed.
+  Evidence: Nix reported `Failed to find a machine for remote build` for the configured
+  `ssh://builder@nix-gcp-builder` on 2026-09-20.
 
 
 ## Decision Log
@@ -107,11 +143,39 @@ integration, both examples, schema compatibility, and package contents.
   diagnosable. Both follow the applicable haskell-jitsurei CLI patterns.
   Date: 2026-09-18
 
+- Decision: Treat the two Cabal packages as independent release roots and verify synchronized
+  root resources rather than allowing either sdist to reach outside its source tree.
+  Rationale: Cabal archives must be independently buildable; explicit byte-for-byte checks make
+  the unavoidable package-local copies an enforced invariant.
+  Date: 2026-09-20
+
+- Decision: Keep project-local fixed-hash Hackage replacements until the complete compatibility
+  cohort lands in the shared haskell-nix registry.
+  Rationale: the locked package set cannot satisfy the declared bounds, partial WAI upgrades are
+  inconsistent, and relaxing tested Cabal bounds would claim unsupported releases. IR-2 records
+  the deletion path for the local pins.
+  Date: 2026-09-20
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+Milestones 1 through 3 and the local portion of Milestone 4 are delivered. The public CLI now has
+stable help, completion, version, and error contracts; the README, reference, architecture, and
+security guides match executable examples; and the release graph produces a revision-aware Nix
+binary plus two self-contained source distributions. The packaging boundary is recorded in
+`docs/adr/8-self-contained-multi-package-release-builds.md`.
+
+On macOS, `nix develop --accept-flake-config -c just check` passes 65 core and 33 CLI tests,
+Hurlfmt, both schema forms, the local quick-start/vendor/integration examples, four report formats,
+the 100-fragment/100-case smoke, unpacked sdist builds, and `nix flake check`. The Nix-built binary
+reports package version plus the injected short revision, while the unpacked sdist reports
+`unknown` as designed. No package or remote release was published.
+
+The remaining closure condition is execution of the same command on Linux. The credential-free
+GitHub Actions workflow is present in the worktree, but no revision was pushed under this plan,
+and the configured local Linux builder was unavailable. Keep this plan In Progress until one of
+those Linux paths supplies acceptance evidence.
 
 
 ## Context and Orientation
@@ -428,3 +492,10 @@ is specified rather than inferred from optparse-applicative internals.
 
 2026-09-20: Recorded the existing multi-package Nix failure found during EP-2 acceptance and made
 repairing the generated single-root default package assumption an explicit Milestone 3 obligation.
+
+2026-09-20: Completed CLI hardening, documentation, examples, the explicit multi-package Nix
+output, self-contained sdists, release recipes, macOS acceptance, and the synthetic performance
+smoke. Added ADR 8 and raised
+`mori://shinzui/haskell-nix/okf/improvement-requests/concepts/IR-2` for the shared dependency
+cohort. Linux execution remains pending because no revision was pushed and the configured remote
+builder was unavailable.

@@ -1,5 +1,5 @@
 -- One authentication entry reused by a parameterized resource request.
-let Schema = ../../../../../schema/package.dhall
+let Schema = ../../../../schema/package.dhall
 
 in  Schema.Workspace::{
     , schemaVersion = Schema.schemaVersion

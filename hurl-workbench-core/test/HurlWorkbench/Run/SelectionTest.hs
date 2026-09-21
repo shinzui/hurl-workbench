@@ -122,6 +122,23 @@ tests =
         map (view #name) (toList (result ^. #cases)) @?= ["slow", "fast", "middle"]
         map (view #outcome) (toList (result ^. #cases)) @?= replicate 3 CasePassed
         result ^. #selectedExitCode @?= ExitSuccess,
+      testCase "keeps one hundred scheduled cases within the requested job limit" $ do
+        let names = ["case-" <> Text.pack (show number) | number <- [1 .. 100 :: Int]]
+        cases <- syntheticCases names
+        active <- newTVarIO (0 :: Int)
+        maximumActive <- newTVarIO (0 :: Int)
+        let runner = HurlRunner $ \_request -> do
+              atomically $ do
+                modifyTVar' active (+ 1)
+                current <- readTVar active
+                modifyTVar' maximumActive (max current)
+              threadDelay 1000
+              atomically (modifyTVar' active (subtract 1))
+              pure (Right (RunResult ExitSuccess 0 Nothing))
+        result <- runBatch runner (BatchOptions (positive 7) False) cases
+        readTVarIO maximumActive >>= (@?= 7)
+        map (view #name) (toList (result ^. #cases)) @?= names
+        map (view #outcome) (toList (result ^. #cases)) @?= replicate 100 CasePassed,
       testCase "fail-fast stops queue scheduling and marks untouched cases skipped" $ do
         cases <- syntheticCases ["first", "active", "third", "fourth", "fifth"]
         starts <- newTVarIO (0 :: Int)

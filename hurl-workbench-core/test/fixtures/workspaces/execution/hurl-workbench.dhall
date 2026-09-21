@@ -1,4 +1,4 @@
-let Schema = ../../../../../schema/package.dhall
+let Schema = ../../../../schema/package.dhall
 
 in  Schema.Workspace::{
     , schemaVersion = Schema.schemaVersion

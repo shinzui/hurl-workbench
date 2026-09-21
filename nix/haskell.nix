@@ -20,7 +20,6 @@
   config.perSystem = { system, pkgs, config, ... }:
     let
       hsdev = inputs.haskell-nix-dev.lib.${system};
-      haskellPackages = pkgs.haskell.packages."ghc9124";
 
       baseDevPackages = [
         pkgs.zlib
@@ -40,8 +39,6 @@
       };
     in
     {
-      packages.default = haskellPackages.callCabal2nix "hurl-workbench" inputs.self { };
-
       devShells.default = mkProjectShell "ghc9124";
       devShells."ghc9124" = mkProjectShell "ghc9124";
     };

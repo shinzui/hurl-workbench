@@ -1,6 +1,6 @@
 -- One OAuth fragment reused by two resource workflows, plus a recipe, a
 -- matrix, a managed service, and a suite.
-let Schema = ../../../../../schema/package.dhall
+let Schema = ../../../../schema/package.dhall
 
 let oauthParameters = [ "auth_url", "client_id", "client_secret" ]
 

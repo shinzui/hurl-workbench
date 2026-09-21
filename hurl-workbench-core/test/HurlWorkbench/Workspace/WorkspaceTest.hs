@@ -117,7 +117,7 @@ writeManifest dir fragmentList = do
 -- | The repository schema, relative to the package directory in which
 --   @cabal test@ runs.
 schemaPackage :: FilePath
-schemaPackage = "../schema/package.dhall"
+schemaPackage = "schema/package.dhall"
 
 --------------------------------------------------------------------------------
 -- Validation

@@ -6,12 +6,20 @@ description:
   A Haskell-powered Hurl workbench for composing, exploring, executing, and testing reusable API workflows without duplicating request templates.
 
 license: BSD-3-Clause
-license-file: ../LICENSE
+license-file: LICENSE
 author: Nadeem Bitar
 maintainer: nadeem@gmail.com
 copyright: (c) 2026 Nadeem Bitar
 build-type: Simple
-extra-doc-files: ../CHANGELOG.md
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+extra-source-files:
+  schema/*.dhall
+  test/fixtures/workspaces/**/*.dhall
+  test/fixtures/workspaces/**/*.hurl
+  test/fixtures/workspaces/**/*.txt
 
 common common-options
   ghc-options:
