@@ -4,6 +4,7 @@ module HurlWorkbench.Run.Prepare
   ( PreparedRun (..),
     PreparationError (..),
     prepareSelection,
+    prepareSelectionForSuite,
     prepareSelectionWith,
     buildBatchCase,
     renderPreparationError,
@@ -22,6 +23,7 @@ import HurlWorkbench.Run.Batch
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
 import HurlWorkbench.Workspace.Context (ValidatedWorkspace)
+import HurlWorkbench.Workspace.Types (Workflow)
 
 data PreparedRun = PreparedRun
   { displayName :: !Text,
@@ -48,8 +50,16 @@ data CachedWorkflow
 prepareSelection :: HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
 prepareSelection = prepareSelectionWith validateRenderedWorkflow
 
+-- | Prepare one selection from suite-wide runtime input. Bindings intended
+--   for other selections in the same suite are ignored.
+prepareSelectionForSuite :: HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionForSuite = prepareSelectionUsing resolveWorkflowBindingSubsetWithLayers validateRenderedWorkflow
+
 prepareSelectionWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
-prepareSelectionWith validateRendered capabilities validated input hurlOptions selection =
+prepareSelectionWith = prepareSelectionUsing resolveWorkflowBindingsWithLayers
+
+prepareSelectionUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)) -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionUsing resolveBindings validateRendered capabilities validated input hurlOptions selection =
   case resolveSelection validated selection of
     Left err -> pure (Left (SelectionPreparationFailed err :| []))
     Right expanded -> do
@@ -66,7 +76,7 @@ prepareSelectionWith validateRendered capabilities validated input hurlOptions s
         CachedFormatFailure err -> pure (nextCache, RunFormatFailed (expanded ^. #displayName) err : errors, prepared)
         CachedRendered rendered -> do
           resolved <-
-            resolveWorkflowBindingsWithLayers
+            resolveBindings
               validated
               (expanded ^. #workflow . #workflow)
               (expanded ^. #bindingLayers)

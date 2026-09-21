@@ -5,6 +5,7 @@ module HurlWorkbench.Service.Resolve
     ResolvedReadiness (..),
     ResolvedService (..),
     ServiceError (..),
+    requiredServiceParameters,
     resolveService,
     renderServiceError,
   )
@@ -12,6 +13,7 @@ where
 
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime)
 import HurlWorkbench.Parameter.Resolve (ResolvedBindings (..))
@@ -70,6 +72,23 @@ data ServiceError
   | ServiceShutdownFailed !ServiceName !(Maybe ProcessID) !Text
   deriving stock (Generic, Eq, Show)
 
+data UrlPart
+  = UrlText !Text
+  | UrlParameter !ParameterName
+
+requiredServiceParameters :: Service -> Either ServiceError (Set ParameterName)
+requiredServiceParameters service = do
+  readinessParameters <- case service ^. #readiness of
+    HttpReadinessCheck http ->
+      Set.fromList . mapMaybe partParameter <$> parseUrlTemplate (http ^. #url)
+    CommandReadinessCheck probe -> pure (commandParameters (probe ^. #command))
+  pure (commandParameters (service ^. #command) <> readinessParameters)
+  where
+    commandParameters command = Set.fromList (map (view #parameter) (command ^. #environment))
+    partParameter = \case
+      UrlText _ -> Nothing
+      UrlParameter name -> Just name
+
 resolveService :: ValidatedWorkspace -> ResolvedBindings -> Service -> Either ServiceError ResolvedService
 resolveService validated bindings service = do
   processConfig <- resolveCommand validated bindings (service ^. #command)
@@ -118,23 +137,13 @@ resolveCommand validated bindings command = do
           Nothing -> Left (ServiceBindingMissing name)
 
 substituteReadinessUrl :: ValidatedWorkspace -> ResolvedBindings -> Text -> Either ServiceError Text
-substituteReadinessUrl validated bindings = go ""
+substituteReadinessUrl validated bindings template = do
+  urlParts <- parseUrlTemplate template
+  Text.concat <$> traverse renderPart urlParts
   where
-    go rendered remaining =
-      case Text.breakOn "{{" remaining of
-        (prefix, rest)
-          | Text.null rest ->
-              if "}}" `Text.isInfixOf` prefix
-                then Left (ServiceReadinessMalformedPlaceholder remaining)
-                else Right (rendered <> prefix)
-          | otherwise ->
-              let afterOpen = Text.drop 2 rest
-                  (rawName, close) = Text.breakOn "}}" afterOpen
-               in if Text.null close || Text.null rawName || "{{" `Text.isInfixOf` rawName
-                    then Left (ServiceReadinessMalformedPlaceholder remaining)
-                    else do
-                      value <- readinessValue (ParameterName rawName)
-                      go (rendered <> prefix <> value) (Text.drop 2 close)
+    renderPart = \case
+      UrlText value -> Right value
+      UrlParameter name -> readinessValue name
 
     readinessValue name = case lookupParameter name validated of
       Nothing -> Left (ServiceBindingUnknown name)
@@ -143,6 +152,28 @@ substituteReadinessUrl validated bindings = go ""
         | otherwise -> case Map.lookup name (bindings ^. #variables) of
             Nothing -> Left (ServiceBindingMissing name)
             Just value -> Right (hurlValueLiteralText value)
+
+parseUrlTemplate :: Text -> Either ServiceError [UrlPart]
+parseUrlTemplate template = go [] template
+  where
+    go accumulated remaining =
+      case Text.breakOn "{{" remaining of
+        (prefix, rest)
+          | Text.null rest ->
+              if "}}" `Text.isInfixOf` prefix
+                then malformed
+                else Right (reverse (prependText prefix accumulated))
+          | otherwise ->
+              let afterOpen = Text.drop 2 rest
+                  (rawName, close) = Text.breakOn "}}" afterOpen
+               in if Text.null close || Text.null rawName || "{{" `Text.isInfixOf` rawName
+                    then malformed
+                    else go (UrlParameter (ParameterName rawName) : prependText prefix accumulated) (Text.drop 2 close)
+
+    prependText value accumulated
+      | Text.null value = accumulated
+      | otherwise = UrlText value : accumulated
+    malformed = Left (ServiceReadinessMalformedPlaceholder template)
 
 milliseconds :: Natural -> Int
 milliseconds value = fromIntegral value * 1000

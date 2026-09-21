@@ -48,7 +48,11 @@ bodies.
   races the callback against leader exit, and performs TERM/KILL process-group cleanup. Seven real
   process tests cover wrong-status retry, command readiness, timeout, early exit, TERM escalation,
   and asynchronous cancellation.
-- [ ] Milestone 2: execute named suites with safety gates and reports.
+- [x] (2026-09-20) Milestone 2: execute named suites with safety gates and reports. Whole-suite
+  preflight now accumulates preparation/safety/service issues before spawn, suite-wide binding
+  inputs resolve per consumer, managed-service failures preserve completed cases and skip the rest,
+  and isolated owner-only report trees receive atomic redacted summaries. Core coverage is now 64
+  tests, including mutation gating, external-service execution, overwrite recovery, and exit 4.
 - [ ] Milestone 3: add suite CLI and an integration-testing example.
 
 
@@ -64,6 +68,12 @@ bodies.
   overall readiness deadline.
   Evidence: The lifecycle implementation applies the remaining overall deadline around every probe;
   a hanging command fixture is stopped at the configured deadline.
+
+- Observation: Dhall 1.42.3 constrains Aeson below 2.3, so the current Aeson 2.3.2.0 release cannot
+  coexist in this package set.
+  Evidence: Cabal's solver reported Dhall's `aeson <2.3` constraint. Aeson 2.2.5.1 was verified in
+  the authoritative package index and against upstream tag `v2.2.5.1`, then bounded as
+  `>=2.2.5.1 && <2.3`.
 
 
 ## Decision Log
@@ -96,6 +106,18 @@ bodies.
   callback exceptions until group cleanup completes.
   Rationale: Leader-only termination cannot guarantee descendant cleanup, while a masked bracket
   preserves cleanup on normal return, lifecycle failure, and asynchronous cancellation.
+  Date: 2026-09-20
+
+- Decision: Resolve suite-wide runtime input per consumer, retaining strict validation only for
+  the names that consumer selects.
+  Rationale: A binding intended for a different run is not unexpected at suite scope, but selected
+  names must retain all existing kind, source-precedence, and missing-value checks.
+  Date: 2026-09-20
+
+- Decision: Reject an existing suite report subtree unless overwrite is explicit, then replace only
+  that suite child beneath the requested report root.
+  Rationale: This makes reruns recoverable without allowing a generated logical name to broaden the
+  deletion scope or concurrent cases to share report targets.
   Date: 2026-09-20
 
 
@@ -239,6 +261,7 @@ data SuiteOptions = SuiteOptions
   , manageService :: !Bool
   , reportFormats :: !(Set ReportFormat)
   , reportDirectory :: !(Maybe FilePath)
+  , overwriteReports :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -258,6 +281,7 @@ data SuiteResult = SuiteResult
   { cases :: !(NonEmpty CaseResult)
   , serviceOutcome :: !(Maybe ServiceOutcome)
   , summaryPath :: !(Maybe FilePath)
+  , summaryError :: !(Maybe Text)
   , selectedExitCode :: !ExitCode
   }
   deriving stock (Generic, Eq, Show)

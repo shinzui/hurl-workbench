@@ -12,9 +12,11 @@ module HurlWorkbench.Parameter.Resolve
     emptyBindingInput,
     mkSecretValue,
     resolveParameters,
+    resolveParameterSubset,
     resolveParametersWithLayers,
     resolveWorkflowBindings,
     resolveWorkflowBindingsWithLayers,
+    resolveWorkflowBindingSubsetWithLayers,
     renderBindingError,
     renderBindingIssue,
   )
@@ -52,14 +54,27 @@ resolveWorkflowBindingsWithLayers :: ValidatedWorkspace -> Workflow -> [BindingL
 resolveWorkflowBindingsWithLayers validated workflow layers input =
   resolveParametersWithLayers validated (Set.fromList (workflow ^. #parameters)) layers input
 
+resolveWorkflowBindingSubsetWithLayers :: ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveWorkflowBindingSubsetWithLayers validated workflow layers input =
+  resolveParametersWithMode False validated (Set.fromList (workflow ^. #parameters)) layers input
+
 resolveParameters :: ValidatedWorkspace -> Set ParameterName -> BindingInput -> IO (Either BindingError ResolvedBindings)
 resolveParameters validated selected = resolveParametersWithLayers validated selected []
+
+-- | Resolve one consumer's parameter subset from a shared runtime input.
+--   Bindings for other declared consumers are ignored, while selected names
+--   retain the same kind and precedence validation as normal resolution.
+resolveParameterSubset :: ValidatedWorkspace -> Set ParameterName -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParameterSubset validated selected = resolveParametersWithMode False validated selected []
 
 -- | Resolve runtime inputs over committed plain-value layers ordered from
 --   highest to lowest precedence. Runtime overrides and variable files remain
 --   above these layers; declared environments and defaults remain below them.
 resolveParametersWithLayers :: ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParametersWithLayers validated selected layers input = do
+resolveParametersWithLayers = resolveParametersWithMode True
+
+resolveParametersWithMode :: Bool -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParametersWithMode rejectUnselected validated selected layers input = do
   loadedVariables <- loadVariableFiles (input ^. #variableFiles)
   loadedSecrets <- loadSecretFiles (input ^. #secretFiles)
   case (loadedVariables, loadedSecrets) of
@@ -74,11 +89,15 @@ resolveParametersWithLayers validated selected layers input = do
           parameters = validatedParameters validated
           staticIssues =
             unknownSelected parameters selected
-              <> unexpected selected explicitVariables
-              <> unexpected selected explicitSecrets
-              <> unexpected selected fileVariables
-              <> unexpected selected fileSecrets
-              <> concatMap (unexpected selected) committedVariables
+              <> [ issue
+                 | rejectUnselected,
+                   issue <-
+                     unexpected selected explicitVariables
+                       <> unexpected selected explicitSecrets
+                       <> unexpected selected fileVariables
+                       <> unexpected selected fileSecrets
+                       <> concatMap (unexpected selected) committedVariables
+                 ]
               <> kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets committedVariables
       resolved <- traverse (resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables) (Set.toAscList selected)
       let dynamicIssues = concatMap (\(issues, _, _) -> issues) resolved

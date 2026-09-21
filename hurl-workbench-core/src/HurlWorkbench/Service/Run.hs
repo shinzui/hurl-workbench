@@ -147,7 +147,10 @@ awaitReadiness ambient service readiness process = do
               case attempted of
                 Nothing -> pure (Left (ServiceReadinessTimedOut (service ^. #name)))
                 Just (Left err) -> pure (Left err)
-                Just (Right True) -> pure (Right ())
+                Just (Right True) ->
+                  getExitCode process <&> \case
+                    Just exitCode -> Left (ServiceExitedBeforeReady (service ^. #name) exitCode)
+                    Nothing -> Right ()
                 Just (Right False) -> threadDelay (readinessInterval readiness) >> loop deadline
 
 probeReadiness :: [(String, String)] -> PreparedReadiness -> IO (Either ServiceError Bool)

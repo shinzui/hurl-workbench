@@ -49,6 +49,8 @@ library
     HurlWorkbench.Run.Selection
     HurlWorkbench.Service.Resolve
     HurlWorkbench.Service.Run
+    HurlWorkbench.Suite.Resolve
+    HurlWorkbench.Suite.Run
     HurlWorkbench.Workflow.Render
     HurlWorkbench.Workflow.Resolve
     HurlWorkbench.Workspace.Context
@@ -63,6 +65,7 @@ library
     HurlWorkbench.Workspace.Context.Internal
 
   build-depends:
+    aeson >=2.2.5.1 && <2.3,
     async ^>=2.2.6,
     base >=4.20 && <5,
     bytestring >=0.11 && <0.13,
@@ -91,6 +94,7 @@ test-suite hurl-workbench-core-test
     HurlWorkbench.Parameter.ParameterTest
     HurlWorkbench.Run.SelectionTest
     HurlWorkbench.Service.RunTest
+    HurlWorkbench.Suite.RunTest
     HurlWorkbench.Workflow.WorkflowTest
     HurlWorkbench.Workspace.NameSafetyTest
     HurlWorkbench.Workspace.WorkspaceTest

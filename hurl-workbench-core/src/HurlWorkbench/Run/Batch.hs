@@ -12,6 +12,7 @@ module HurlWorkbench.Run.Batch
     CaseResult (..),
     BatchResult (..),
     runBatch,
+    runBatchObserved,
   )
 where
 
@@ -95,7 +96,13 @@ data BatchResult = BatchResult
   deriving stock (Generic, Eq, Show)
 
 runBatch :: HurlRunner -> BatchOptions -> NonEmpty BatchCase -> IO BatchResult
-runBatch runner options batchCases = do
+runBatch runner options batchCases = runBatchObserved runner options batchCases (\_index _result -> pure ())
+
+-- | Run a batch while publishing each completed case with its declaration
+--   index. The observer lets orchestration retain completed outcomes if a
+--   prerequisite failure asynchronously cancels the batch.
+runBatchObserved :: HurlRunner -> BatchOptions -> NonEmpty BatchCase -> (Int -> CaseResult -> IO ()) -> IO BatchResult
+runBatchObserved runner options batchCases observe = do
   queue <- atomically newTQueue
   results <- atomically (newTVar Map.empty)
   stopped <- atomically (newTVar False)
@@ -116,6 +123,7 @@ runBatch runner options batchCases = do
         Nothing -> pure ()
         Just (caseIndex, batchCase) -> do
           result <- executeCase runner batchCase
+          observe caseIndex result
           atomically $ do
             modifyTVar' results (Map.insert caseIndex result)
             when (options ^. #failFast && caseFailed result) (writeTVar stopped True)
