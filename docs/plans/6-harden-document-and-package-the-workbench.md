@@ -47,7 +47,11 @@ integration, both examples, schema compatibility, and package contents.
   revision-aware version output, public Bash/Zsh/Fish completion generation, centralized CLI
   failure construction, dependency next actions, preflight labeling, and golden/protocol tests
   pass with 64 core and 33 CLI tests.
-- [ ] Milestone 2: reference documentation and final examples.
+- [x] (2026-09-20) Milestone 2 complete: the executable quick start, workspace and CLI references,
+  architecture and security guides, changelog, and both motivating example READMEs match live
+  output. Hurlfmt accepted every checked-in Hurl file; the quick start, vendor matrix and special
+  workflows, managed/external safe suite, mutating suite, and perimeter suite passed against the
+  local fixture service.
 - [ ] Milestone 3: reproducible Nix, Cabal, CI, source distributions, and release commands.
 - [ ] Milestone 4: release acceptance, performance smoke, and initiative closure.
 
