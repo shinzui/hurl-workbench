@@ -49,7 +49,9 @@ later plans.
 - [x] (2026-09-20 18:12 PDT) Milestone 1: resolved plain and secret bindings without
   rendering them; all 40 core tests pass, including precedence, missing/unexpected names,
   properties syntax, channel mismatch, and redaction coverage.
-- [ ] Milestone 2: build a secure, bracketed Hurl process adapter.
+- [x] (2026-09-20 18:48 PDT) Milestone 2: built the secure, bracketed Hurl process adapter,
+  shared fixture server, and capability detection. All 47 core tests and 17 CLI tests pass,
+  including a live Hurl 8.0.1 client/test run.
 - [ ] Milestone 3: expose `run`, `test`, and `doctor`.
 
 
@@ -64,6 +66,11 @@ later plans.
   EP-3 must reuse these values and extend dependency detection rather than defining parallel
   fragment, root, or Hurlfmt paths.
   Evidence: completed EP-2 and `docs/adr/3-opaque-hurl-fragment-composition.md`.
+
+- Observation: Hurl 8.0.1 writes a client response body to stdout but writes a successful
+  `--test` per-file result and summary to stderr. Captured batch execution must retain and later
+  emit the two channels separately rather than assuming all successful output is stdout.
+  Evidence: the live client/test integration case in `hurl-workbench-cli/test/Main.hs`.
 
 
 ## Decision Log
@@ -98,6 +105,12 @@ later plans.
   mode, jobs, output, options, variables, and secrets; inheriting it would bypass the typed
   request and precedence model.
   Date: 2026-09-18
+
+- Decision: Prepare response, curl, JUnit, and TAP targets as mode-0600 files and HTML/JSON
+  report targets as mode-0700 directories before spawn.
+  Rationale: Hurl 8 treats the first group as files and the second as directories; pre-creating
+  the exact typed target prevents permissive umasks from exposing output or diagnostics.
+  Date: 2026-09-20
 
 
 ## Outcomes & Retrospective

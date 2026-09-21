@@ -1,5 +1,6 @@
 module Main (main) where
 
+import HurlWorkbench.Hurl.RunTest qualified as RunTest
 import HurlWorkbench.Parameter.ParameterTest qualified as ParameterTest
 import HurlWorkbench.Workflow.WorkflowTest qualified as WorkflowTest
 import HurlWorkbench.Workspace.NameSafetyTest qualified as NameSafetyTest
@@ -11,7 +12,8 @@ main =
   defaultMain $
     testGroup
       "hurl-workbench-core"
-      [ ParameterTest.tests,
+      [ RunTest.tests,
+        ParameterTest.tests,
         WorkspaceTest.tests,
         NameSafetyTest.tests,
         WorkflowTest.tests

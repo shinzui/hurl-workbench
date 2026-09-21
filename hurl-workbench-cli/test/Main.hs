@@ -1,15 +1,26 @@
 module Main (main) where
 
+import Data.ByteString qualified as ByteString
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Version (makeVersion)
+import FixtureServer qualified
 import HurlWorkbench.Cli (runCommandWithHurlfmt)
 import HurlWorkbench.Cli.Options
 import HurlWorkbench.Cli.Output (CommandResult (..))
+import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
+import HurlWorkbench.Hurl.Capabilities
 import HurlWorkbench.Hurl.Format
+import HurlWorkbench.Hurl.Run
+import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
-import HurlWorkbench.Workspace.Types (WorkflowName (..))
+import HurlWorkbench.Workflow.Render (RenderedWorkflow, renderRenderError, renderWorkflow)
+import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
+import HurlWorkbench.Workspace.Context (lookupWorkflow)
+import HurlWorkbench.Workspace.Types (ParameterName (..), WorkflowName (..), mkHurlValueLiteral)
+import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, renderFailure)
 import System.Directory (canonicalizePath)
 import System.Exit (ExitCode (..))
@@ -19,7 +30,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 main :: IO ()
-main = defaultMain (testGroup "hurl-workbench-cli" [parserTests, commandTests])
+main = defaultMain (testGroup "hurl-workbench-cli" [parserTests, commandTests, executionTests])
 
 fixtureDir :: FilePath -> FilePath
 fixtureDir name = "../hurl-workbench-core/test/fixtures/workspaces" </> name
@@ -175,3 +186,63 @@ runTestCommand =
     (pure (Right (HurlfmtCapabilities (HurlfmtExecutable "unused-in-tests") (makeVersion [8, 0, 1]))))
     (\_capabilities _rendered -> pure (Right ()))
     (\_capabilities _validated -> pure (Right []))
+
+executionTests :: TestTree
+executionTests =
+  testGroup
+    "live Hurl execution"
+    [ testCase "client and test modes execute against the shared fixture service" $ do
+        detected <- detectHurlCapabilities
+        case detected of
+          Left DependencyNotFound {} -> putStrLn "SKIP: Hurl 8.x or Hurlfmt is not installed"
+          Left err -> assertFailure (Text.unpack (renderDependencyError err))
+          Right capabilities ->
+            testWithApplication (pure FixtureServer.application) $ \port -> do
+              validated <-
+                loadValidatedWorkspace
+                  (GlobalOptions (Just (fixtureManifest "execution")))
+                  "."
+                  >>= either (assertFailure . Text.unpack . Text.unlines) pure
+              workflow <- maybe (assertFailure "health workflow missing") pure (lookupWorkflow (WorkflowName "health") validated)
+              resolved <- either (assertFailure . Text.unpack . renderWorkflowError) pure (resolveWorkflow validated (WorkflowName "health"))
+              rendered <- renderWorkflow resolved >>= either (assertFailure . Text.unpack . renderRenderError) pure
+              validateRenderedWorkflow (capabilities ^. #hurlfmt) rendered
+                >>= either (assertFailure . Text.unpack . renderHurlfmtError) pure
+              baseUrl <-
+                either
+                  (assertFailure . show)
+                  pure
+                  (mkHurlValueLiteral ("http://127.0.0.1:" <> Text.pack (show port)))
+              bindings <-
+                resolveWorkflowBindings
+                  validated
+                  workflow
+                  emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") baseUrl}
+                  >>= either (assertFailure . Text.unpack . renderBindingError) pure
+              client <- runLive capabilities rendered bindings ClientMode
+              test <- runLive capabilities rendered bindings TestMode
+              client ^. #exitCode @?= ExitSuccess
+              test ^. #exitCode @?= ExitSuccess
+              assertBool "client prints fixture response" (maybe False (ByteString.isInfixOf "ok" . view #stdout) (client ^. #capturedOutput))
+              assertBool
+                "test mode prints a Hurl result"
+                ( maybe
+                    False
+                    (\captured -> not (ByteString.null (captured ^. #stdout) && ByteString.null (captured ^. #stderr)))
+                    (test ^. #capturedOutput)
+                )
+    ]
+
+runLive :: HurlCapabilities -> RenderedWorkflow -> ResolvedBindings -> HurlRunMode -> IO RunResult
+runLive capabilities rendered bindings mode =
+  runHurl
+    (mkHurlRunner capabilities)
+    RunRequest
+      { renderedWorkflow = rendered,
+        mode,
+        bindings,
+        options = defaultHurlOptions,
+        outputPolicy = CaptureRunOutput,
+        reportTargets = []
+      }
+    >>= either (assertFailure . Text.unpack . renderRunStartError) pure

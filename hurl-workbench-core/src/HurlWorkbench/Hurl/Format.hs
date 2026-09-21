@@ -52,6 +52,7 @@ data DependencyError
   = DependencyNotFound !Text !FilePath
   | DependencyProbeFailed !Text !ExitCode !Text
   | DependencyVersionUnrecognized !Text !Text
+  | DependencyVersionUnsupported !Text !Version !Version
   deriving stock (Generic, Eq, Show)
 
 data HurlfmtError
@@ -195,6 +196,8 @@ renderDependencyError = \case
     "dependency " <> quote name <> " failed its version probe with " <> Text.pack (show exitCode) <> detail message
   DependencyVersionUnrecognized name output ->
     "could not parse the version reported by dependency " <> quote name <> detail output
+  DependencyVersionUnsupported name detected minimumVersion ->
+    "dependency " <> quote name <> " is version " <> Text.pack (show detected) <> "; version " <> Text.pack (show minimumVersion) <> " or newer is required"
 
 renderHurlfmtError :: HurlfmtError -> Text
 renderHurlfmtError = \case

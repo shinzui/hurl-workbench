@@ -197,9 +197,10 @@ constraint concrete must create or update the corresponding ADR.
   fragment composition, line-span provenance, Hurlfmt syntax validation, and exact stdout or
   atomic-file rendering; 49 tests pass across both packages and the live Hurlfmt 8.0.1 pipelines
   succeed.
-- [ ] (2026-09-20 17:55 PDT) EP-3 is in progress; binding resolution is the active milestone.
-  EP-4 through EP-6 remain not started. The initiative-wide Nix gate also has a pre-existing
-  multi-package default-output failure assigned to EP-6.
+- [ ] (2026-09-20 18:48 PDT) EP-3 is in progress; binding resolution and the secure single-run
+  Hurl adapter are complete, and the CLI surface is the active milestone. EP-4 through EP-6
+  remain not started. The initiative-wide Nix gate also has a pre-existing multi-package
+  default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries
@@ -284,6 +285,11 @@ constraint concrete must create or update the corresponding ADR.
   Hurlfmt separately.
   Evidence: `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` and
   `docs/adr/3-opaque-hurl-fragment-composition.md`.
+
+- Observation: Hurl 8.0.1 writes client response bodies to stdout but successful `--test`
+  results and summaries to stderr. EP-4 and EP-5 must preserve both captured channels and emit
+  them in case declaration order instead of treating stderr as failure-only output.
+  Evidence: the EP-3 live client/test integration case in `hurl-workbench-cli/test/Main.hs`.
 
 
 ## Decision Log
