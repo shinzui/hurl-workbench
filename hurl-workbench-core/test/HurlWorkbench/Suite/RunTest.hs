@@ -161,7 +161,7 @@ positive :: Int -> PositiveInt
 positive value = either (error . show) id (mkPositiveInt value)
 
 trueCapabilities :: HurlfmtCapabilities
-trueCapabilities = HurlfmtCapabilities (HurlfmtExecutable "/usr/bin/true") (makeVersion [8, 0, 1])
+trueCapabilities = HurlfmtCapabilities (HurlfmtExecutable "true") (makeVersion [8, 0, 1])
 
 fullWorkspace :: IO ValidatedWorkspace
 fullWorkspace = loadValidated "test/fixtures/workspaces/full/hurl-workbench.dhall"

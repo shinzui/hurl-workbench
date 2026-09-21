@@ -2,6 +2,10 @@ packages:
   hurl-workbench-core
   hurl-workbench-cli
 
+-- Keep standalone Cabal resolution reproducible across developer machines and
+-- clean Linux containers. The Nix package graph remains independently pinned
+-- by flake.lock and flake.module.nix.
+index-state: 2026-09-21T00:00:00Z
 -- GHC is provided by the Nix devShell from `nix-haskell-flake` (currently
 -- pinned to ghc9124). Add a `with-compiler:` line here if you want
 -- cabal to fail loudly when the version drifts from the flake.

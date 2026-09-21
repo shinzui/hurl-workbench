@@ -23,6 +23,11 @@ provenance:
       at: 2026-09-21T04:30:00Z
       mode: "implement"
       note: "Completed local release packaging and acceptance; recorded the pending external Linux CI run."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-21T08:26:11Z
+      mode: "implement"
+      note: "Completed clean ARM64 Linux acceptance with Apple container and closed EP-6."
 ---
 
 # Harden Document and Package the Workbench
@@ -40,8 +45,8 @@ change.
 This plan turns the completed feature streams into a coherent first release. A new user can
 enter the Nix shell, follow one quick start, understand the workspace schema and security
 model, run both examples without external services, generate shell completion, and build
-clean source distributions. CI exercises formatting, compilation, unit tests, real Hurl
-integration, both examples, schema compatibility, and package contents.
+clean source distributions. The release gate exercises formatting, compilation, unit tests, real
+Hurl integration, both examples, schema compatibility, and package contents on macOS and Linux.
 
 
 ## Progress
@@ -60,9 +65,10 @@ integration, both examples, schema compatibility, and package contents.
 - [x] (2026-09-20) Milestone 3 complete: the explicit multi-package Nix output, reproducible
   development shell, package-local release resources, source-distribution inspection/build,
   Just recipes, and credential-free Linux workflow all pass their local release gates.
-- [ ] Milestone 4: macOS release acceptance and the 100-fragment/100-case performance and
-  concurrency smoke pass. The Linux workflow is implemented and its output evaluates, but an
-  actual Linux run awaits either a pushed revision or restoration of the configured remote builder.
+- [x] (2026-09-21) Milestone 4 complete: macOS and ARM64 Linux release acceptance, the
+  100-fragment/100-case performance and concurrency smoke, both examples, source distributions,
+  and Nix flake checks pass. Linux was exercised locally with Apple `container`, matching the
+  project's local Linux-testing convention while GitHub Actions is intentionally disabled.
 
 
 ## Surprises & Discoveries
@@ -109,12 +115,18 @@ integration, both examples, schema compatibility, and package contents.
   Evidence: `scripts/check-sdist.sh` reproduced the failure, after which package-relative imports
   and synchronized schema copies made both unpacked packages build.
 
-- Observation: the configured x86_64-linux Nix builder was registered but unavailable over SSH,
-  so local macOS acceptance could evaluate the Linux output only as far as its build-time import
-  before requiring that builder. The GitHub workflow is the remaining authorized execution path
-  after a revision is pushed.
-  Evidence: Nix reported `Failed to find a machine for remote build` for the configured
-  `ssh://builder@nix-gcp-builder` on 2026-09-20.
+- Observation: a clean Linux Cabal store had no Hackage index, while the macOS developer cache
+  masked that prerequisite. After the index was initialized, tests exposed two more host
+  assumptions: Python was absent from the Nix shell and no-op fixtures used `/usr/bin/true`.
+  Evidence: the first Apple-container run reported an unknown `warp` package; subsequent runs
+  reached the tests and reported missing `/usr/bin/true` and `python3`. Pinning `index-state`,
+  initializing the index in Cabal-backed Just recipes, adding Python to the shell, and resolving
+  `true` through `PATH` made the complete Linux gate pass.
+
+- Observation: the configured remote builder and GitHub-hosted runner were unnecessary for local
+  Linux acceptance. The project convention is to use Apple `container` on macOS.
+  Evidence: `nix develop --accept-flake-config -c just check` passed in an ARM64 Linux container
+  using `ghcr.io/nixos/nix:2.35.2` on 2026-09-21.
 
 
 ## Decision Log
@@ -156,11 +168,18 @@ integration, both examples, schema compatibility, and package contents.
   the deletion path for the local pins.
   Date: 2026-09-20
 
+- Decision: Accept the full release gate in an Apple ARM64 Linux container as Linux evidence and
+  keep the credential-free GitHub workflow configured but optional while Actions is disabled.
+  Rationale: the local container executes the same Nix-defined command in a clean Linux userland,
+  and it is the project's stated local Linux-testing mechanism. Requiring a hosted runner would
+  add no product coverage and is currently blocked by account billing rather than repository code.
+  Date: 2026-09-21
+
 
 ## Outcomes & Retrospective
 
 
-Milestones 1 through 3 and the local portion of Milestone 4 are delivered. The public CLI now has
+All four milestones are delivered. The public CLI now has
 stable help, completion, version, and error contracts; the README, reference, architecture, and
 security guides match executable examples; and the release graph produces a revision-aware Nix
 binary plus two self-contained source distributions. The packaging boundary is recorded in
@@ -172,10 +191,9 @@ the 100-fragment/100-case smoke, unpacked sdist builds, and `nix flake check`. T
 reports package version plus the injected short revision, while the unpacked sdist reports
 `unknown` as designed. No package or remote release was published.
 
-The remaining closure condition is execution of the same command on Linux. The credential-free
-GitHub Actions workflow is present in the worktree, but no revision was pushed under this plan,
-and the configured local Linux builder was unavailable. Keep this plan In Progress until one of
-those Linux paths supplies acceptance evidence.
+The same command also passes in a clean ARM64 Linux Apple container after proving Cabal-index
+bootstrap and removing macOS-specific test assumptions. GitHub Actions remains configured but was
+not used as acceptance evidence and may remain disabled. No package or remote release was published.
 
 
 ## Context and Orientation
@@ -448,7 +466,7 @@ Run commands from `/Users/shinzui/Keikaku/bokuno/hurl-workbench`.
 - `just check`, `nix flake check`, `cabal build all`, `cabal test all`, and
   `cabal sdist all` succeed;
 - sdists contain required source/schema/docs/licenses and no build/report/secret artifacts;
-- CI runs the same acceptance path without external credentials;
+- the credential-free CI workflow and local Apple-container recipe run the same acceptance path;
 - all child plans, ADRs, and the MasterPlan reflect the implemented state;
 - no package or remote release is published by this plan.
 
@@ -471,7 +489,8 @@ EP-6 does not introduce a new domain layer. It owns the final CLI error/help sur
 documentation set, Nix customization, Justfile, CI workflow, package metadata, and release
 acceptance. All functional behavior must flow through EP-1 through EP-5 interfaces.
 
-The required development-shell addition is `pkgs.hurl`; Hurl remains an external binary.
+The required development-shell additions are `pkgs.hurl` and `pkgs.python3`; Hurl remains an
+external binary, while Python supports the managed-service test fixtures.
 Use `githash >=0.1.7 && <0.2` and `terminal-size >=0.3.4 && <0.4` if the implementation
 needs the terminal-width adapter described above. Mori has no registered source for either
 package; these bounds and APIs were therefore checked against Hackage and their upstream
@@ -499,3 +518,8 @@ smoke. Added ADR 8 and raised
 `mori://shinzui/haskell-nix/okf/improvement-requests/concepts/IR-2` for the shared dependency
 cohort. Linux execution remains pending because no revision was pushed and the configured remote
 builder was unavailable.
+
+2026-09-21: Completed ARM64 Linux acceptance with Apple `container`, fixed the clean-store Cabal
+index bootstrap and macOS-only test executable assumptions, documented `just linux-check`, updated
+ADR 8, and closed EP-6. GitHub Actions remains configured but intentionally disabled; no package
+or remote release was published.

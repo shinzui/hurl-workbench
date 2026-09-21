@@ -44,6 +44,7 @@
       haskellProject.extraDevPackages = [
         pkgs.curl
         pkgs.hurl
+        pkgs.python3
         pkgs.ripgrep
       ];
 

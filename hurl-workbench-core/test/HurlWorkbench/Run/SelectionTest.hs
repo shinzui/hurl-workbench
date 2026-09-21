@@ -184,7 +184,7 @@ tests =
     ]
 
 trueCapabilities :: HurlfmtCapabilities
-trueCapabilities = HurlfmtCapabilities (HurlfmtExecutable "/usr/bin/true") (makeVersion [8, 0, 1])
+trueCapabilities = HurlfmtCapabilities (HurlfmtExecutable "true") (makeVersion [8, 0, 1])
 
 literal :: Text -> HurlValueLiteral
 literal value = either (error . show) id (mkHurlValueLiteral value)

@@ -48,6 +48,19 @@ across package boundaries for shared fixtures. The release gate does not skip th
 runs Cabal's complete test suites, live local examples, schema compatibility, performance smoke,
 sdist builds, and `nix flake check` before accepting the package derivations.
 
+Standalone Cabal resolution pins its Hackage solver view with `index-state` in `cabal.project`.
+Every Cabal-backed Just recipe depends on `cabal update`, so a clean machine initializes the
+package index before resolution instead of silently relying on a developer's existing cache.
+Python is present in the development shell because the managed-service test fixtures execute it;
+test no-op executables are resolved through `PATH` rather than a macOS-only absolute path.
+
+The supported local Linux acceptance path on macOS is Apple `container`. `just linux-check`
+mounts the worktree into a disposable ARM64 Nix Linux container and runs the same `just check`
+gate. Because entering the Nix shell installs Git hooks, the wrapper saves and restores the host's
+hooks around the mounted-container run. The GitHub Actions workflow remains a credential-free
+automation option, but its execution is not required when it is intentionally disabled and
+equivalent local Linux evidence is recorded.
+
 
 ## Consequences
 
@@ -57,6 +70,11 @@ accidentally depending on repository layout. Package metadata is duplicated deli
 executable synchronization invariant rather than an unenforced convention. The Nix graph is
 larger than a plain locked nixpkgs graph until IR-2 centralizes the compatibility cohort, but every
 replacement is content-addressed and the Cabal and Nix dependency contracts agree.
+
+The canonical check needs network access when it initializes or refreshes Cabal's package index.
+The pinned index state keeps dependency selection stable even when the downloaded index contains
+newer releases. A disposable Linux check is slower than a persistent container because it starts
+with an empty Nix store, but it proves the clean-machine bootstrap and avoids host-cache coupling.
 
 The generated single-root assumption belongs to the `nix-haskell-flake` template in
 `mori://shinzui/seihou-modules`; artifact-level URI coverage for its template source is pending.

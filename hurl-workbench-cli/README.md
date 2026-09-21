@@ -65,10 +65,13 @@ uses a Nix flake for the complete toolchain.
 
 ```bash
 nix develop
-cabal build all
-cabal test all
-nix fmt -- --ci
+just check
 ```
+
+`just check` initializes Cabal's Hackage index, whose solver view is pinned by
+`cabal.project`, then runs formatting, builds, tests, local examples, source-distribution
+checks, and the Nix flake gate. On a Mac with Apple `container` installed and its system
+service running, `just linux-check` runs that same gate in a disposable ARM64 Linux VM.
 
 ## License
 

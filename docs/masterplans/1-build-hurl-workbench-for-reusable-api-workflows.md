@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-21T04:30:00Z
       mode: "implement"
       note: "Delivered EP-6 locally and recorded Linux CI as the remaining initiative acceptance gate."
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-21T08:26:11Z
+      mode: "implement"
+      note: "Completed EP-6 Linux acceptance and closed the initiative."
 ---
 
 # Build Hurl Workbench for Reusable API Workflows
@@ -137,7 +142,7 @@ mutations and special perimeter cases.
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
 | EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Complete |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Complete |
-| EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | In Progress |
+| EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Complete |
 
 Status values are Not Started, In Progress, Complete, and Cancelled. Every child plan
 inherits intention `intention_01kytnndmnef28f9ksadwfac7h` in its frontmatter.
@@ -215,10 +220,10 @@ constraint concrete must create or update the corresponding ADR.
   and the fixture-backed managed-service example. All 64 core and 29 CLI tests pass; the real safe
   suite produced JUnit/JSON reports, the write gate was proven both denied and authorized, and the
   managed port was closed afterward.
-- [ ] EP-6 is in progress. CLI hardening, documentation, examples, reproducible multi-package
-  Nix/Cabal packaging, macOS release acceptance, and the 100-case performance smoke pass. The
-  credential-free Linux workflow is implemented; an actual Linux run remains pending because no
-  revision was pushed and the configured remote Nix builder was unavailable.
+- [x] (2026-09-21) EP-6 delivered CLI hardening, documentation, examples, reproducible
+  multi-package Nix/Cabal packaging, macOS and ARM64 Linux release acceptance, and the 100-case
+  performance smoke. The Linux gate passed locally through Apple `container`; GitHub Actions
+  remains configured but intentionally disabled.
 
 
 ## Surprises & Discoveries
@@ -336,10 +341,11 @@ constraint concrete must create or update the corresponding ADR.
   Evidence: `docs/plans/6-harden-document-and-package-the-workbench.md` and
   `docs/adr/8-self-contained-multi-package-release-builds.md`.
 
-- Observation: local macOS acceptance is complete, but initiative closure still requires the
-  implemented Linux workflow to run. The configured x86_64-linux Nix builder was unavailable over
-  SSH, and executing GitHub Actions requires pushing a revision, which this plan does not authorize.
-  Evidence: EP-6's 2026-09-20 acceptance transcript and living Progress section.
+- Observation: clean Linux acceptance exposed prerequisites hidden by the macOS developer cache:
+  Cabal needed its Hackage index initialized, managed-service fixtures needed Python in the Nix
+  shell, and no-op fixtures needed a `PATH`-resolved executable instead of `/usr/bin/true`.
+  Evidence: EP-6's Apple-container runs on 2026-09-21 failed at each boundary before the final
+  `nix develop --accept-flake-config -c just check` passed on ARM64 Linux.
 
 
 ## Decision Log
@@ -407,6 +413,12 @@ constraint concrete must create or update the corresponding ADR.
   the deletion path for temporary local dependency pins.
   Date: 2026-09-20
 
+- Decision: Use Apple `container` for local Linux release acceptance, with the hosted GitHub
+  workflow retained as optional automation rather than a closure dependency.
+  Rationale: this is the project's local Linux-testing convention and runs the identical Nix
+  release gate in a clean Linux userland even while GitHub Actions is intentionally disabled.
+  Date: 2026-09-21
+
 
 ## Outcomes & Retrospective
 
@@ -429,11 +441,11 @@ process-group ownership, whole-suite preflight blocks unsafe or invalid work bef
 isolated Hurl reports plus redacted summaries preserve truthful outcomes; these boundaries are
 recorded in `docs/adr/6-managed-service-process-group-lifecycle.md` and
 `docs/adr/7-suite-preflight-safety-and-report-isolation.md`. EP-6 has delivered its CLI, docs,
-examples, release packaging, CI workflow, and macOS acceptance; its self-contained release boundary
-is recorded in `docs/adr/8-self-contained-multi-package-release-builds.md`. The default Nix package,
-flake checks, 65 core tests, 33 CLI tests, live local examples, sdists, and 100-case smoke all pass.
-The initiative remains open only for execution of the same acceptance command on Linux; no package
-or remote release has been published.
+examples, release packaging, CI workflow, and macOS/ARM64 Linux acceptance; its self-contained
+release boundary is recorded in `docs/adr/8-self-contained-multi-package-release-builds.md`. The
+default Nix package, flake checks, 65 core tests, 33 CLI tests, live local examples, sdists, and
+100-case smoke all pass. The initiative is complete. No package or remote release has been
+published.
 
 
 ## Revision Note
@@ -477,3 +489,8 @@ smoke. Added ADR 8 and raised
 `mori://shinzui/haskell-nix/okf/improvement-requests/concepts/IR-2`. EP-6 and the initiative remain
 In Progress solely because the implemented Linux workflow has not run on an unpublished revision
 and the configured remote builder was unavailable.
+
+2026-09-21: Ran the complete gate in an ARM64 Linux Apple container, fixed the clean Cabal-index
+bootstrap and host-specific test dependencies it exposed, documented the repeatable local Linux
+recipe, and marked EP-6 and the initiative Complete. GitHub Actions remains configured but
+intentionally disabled; no package or remote release was published.

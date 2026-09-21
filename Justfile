@@ -1,9 +1,12 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-build:
+cabal-index:
+    cabal update
+
+build: cabal-index
     cabal build all
 
-test:
+test: cabal-index
     cabal test all --test-show-details=direct
 
 fmt:
@@ -29,15 +32,15 @@ sync-check:
     diff -qr examples hurl-workbench-cli/examples
     echo "release copies: PASS"
 
-schema-check:
+schema-check: cabal-index
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/minimal/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/minimal-explicit/hurl-workbench.dhall validate
     echo "schema compatibility: PASS"
 
-performance:
+performance: cabal-index
     bash scripts/performance-smoke.sh
 
-examples:
+examples: cabal-index
     @work_dir="$(mktemp -d)"; \
     server_pid=""; \
     cleanup() { if [[ -n "$server_pid" ]]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi; rm -rf "$work_dir"; }; \
@@ -57,11 +60,16 @@ examples:
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite writes --allow-mutating; \
     echo "examples: PASS"
 
-sdist:
+sdist: cabal-index
     bash scripts/check-sdist.sh
 
 nix-check:
     nix flake check
+
+# Run the complete release gate in a disposable ARM64 Linux VM through Apple's
+# `container` CLI. Invoke this recipe from macOS, outside the Nix dev shell.
+linux-check:
+    bash scripts/linux-check.sh
 
 check: fmt-check hurlfmt-check sync-check build test schema-check performance examples sdist nix-check
     echo "all checks: PASS"
