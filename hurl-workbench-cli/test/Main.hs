@@ -22,7 +22,7 @@ import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render (RenderedWorkflow, renderRenderError, renderWorkflow)
 import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
 import HurlWorkbench.Workspace.Context (lookupWorkflow)
-import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), WorkflowName (..), mkHurlValueLiteral)
+import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), WorkflowName (..), mkHurlValueLiteral)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, renderFailure)
 import System.Directory (canonicalizePath, getPermissions, setOwnerExecutable, setPermissions)
@@ -63,7 +63,7 @@ parserTests =
           _ -> assertFailure "expected a parse failure",
       testCase "render parses a workflow and optional output" $
         successOf (parse ["render", "workflow", "oauth-property", "--output", "rendered.hurl"])
-          >>= (@?= Options (GlobalOptions Nothing) (RenderCommand (RenderOptions (WorkflowName "oauth-property") (Just "rendered.hurl")))),
+          >>= (@?= Options (GlobalOptions Nothing) (RenderCommand (RenderOptions (SelectWorkflow (WorkflowName "oauth-property")) (Just "rendered.hurl") False))),
       testCase "run parses grouped binding and Hurl options" $ do
         options <-
           successOf
@@ -81,7 +81,7 @@ parserTests =
             )
         case options ^. #cmd of
           RunCommand execute -> do
-            execute ^. #workflow @?= WorkflowName "health"
+            execute ^. #selection @?= SelectWorkflow (WorkflowName "health")
             execute ^. #bindings . #variables @?= ["baseUrl=http://127.0.0.1"]
             execute ^. #hurl . #retryCount @?= Just 2
             execute ^. #hurl . #includeHeaders @?= True
@@ -93,6 +93,41 @@ parserTests =
           _ -> assertFailure "expected --help to produce help text"
         for_ ["Bindings", "HTTP and retry", "Output and diagnostics", "Advanced Hurl arguments"] $ \heading ->
           assertBool ("mentions " <> heading) (heading `isIn` helpText),
+      testCase "recipe and matrix selectors parse with grouped batch controls" $ do
+        rendered <- successOf (parse ["render", "recipe", "properties", "--explain"])
+        rendered
+          @?= Options
+            (GlobalOptions Nothing)
+            (RenderCommand (RenderOptions (SelectRecipe (RecipeName "properties")) Nothing True))
+        selected <-
+          successOf
+            ( parse
+                [ "matrix",
+                  "property-by-mls",
+                  "--mode",
+                  "run",
+                  "--jobs",
+                  "2",
+                  "--fail-fast",
+                  "--allow-mutating",
+                  "--output-dir",
+                  "responses"
+                ]
+            )
+        case selected ^. #cmd of
+          MatrixCommand options -> do
+            options ^. #matrix @?= MatrixName "property-by-mls"
+            options ^. #mode @?= ClientMode
+            positiveIntValue (options ^. #jobs) @?= 2
+            options ^. #failFastOverride @?= Just True
+            options ^. #allowMutating @?= True
+            options ^. #outputDirectory @?= Just "responses"
+          other -> assertFailure ("expected matrix command, got " <> show other)
+        helpText <- case parse ["matrix", "property-by-mls", "--help"] of
+          Failure failure -> pure (fst (renderFailure failure "hurl-workbench"))
+          _ -> assertFailure "expected matrix --help to produce help text"
+        for_ ["Batch control", "Bindings", "HTTP and retry", "Output", "Advanced Hurl arguments"] $ \heading ->
+          assertBool ("mentions " <> heading) (heading `isIn` helpText),
       testCase "help lists every top-level command and no longer mentions hello" $ do
         helpText <- case parse ["--help"] of
           Failure failure -> pure (fst (renderFailure failure "hurl-workbench"))
@@ -102,6 +137,7 @@ parserTests =
         assertBool "mentions render" ("render" `isIn` helpText)
         assertBool "mentions run" ("run" `isIn` helpText)
         assertBool "mentions test" ("test" `isIn` helpText)
+        assertBool "mentions matrix" ("matrix" `isIn` helpText)
         assertBool "mentions doctor" ("doctor" `isIn` helpText)
         assertBool "mentions --workspace" ("--workspace" `isIn` helpText)
         assertBool "does not mention hello" (not ("hello" `isIn` helpText))
@@ -169,7 +205,7 @@ commandTests =
           runTestCommand
             (GlobalOptions (Just (fixtureManifest "full")))
             "."
-            (RenderCommand (RenderOptions (WorkflowName "list-properties") Nothing))
+            (RenderCommand (RenderOptions (SelectWorkflow (WorkflowName "list-properties")) Nothing False))
         oauth <- Text.IO.readFile (fixtureDir "full" </> "hurl/oauth.hurl")
         properties <- Text.IO.readFile (fixtureDir "full" </> "hurl/properties.hurl")
         result ^. #exitCode @?= ExitSuccess
@@ -180,10 +216,20 @@ commandTests =
           runTestCommand
             (GlobalOptions (Just (fixtureManifest "full")))
             "."
-            (RenderCommand (RenderOptions (WorkflowName "missing") Nothing))
+            (RenderCommand (RenderOptions (SelectWorkflow (WorkflowName "missing")) Nothing False))
         result ^. #exitCode @?= ExitFailure 1
         result ^. #stdoutLines @?= []
         assertBool "names the unknown workflow" (any (Text.isInfixOf "unknown workflow \"missing\"") (result ^. #stderrLines)),
+      testCase "render recipe explains binding sources without values" $ do
+        result <-
+          runTestCommand
+            (GlobalOptions (Just (fixtureManifest "full")))
+            "."
+            (RenderCommand (RenderOptions (SelectRecipe (RecipeName "top-properties")) Nothing True))
+        result ^. #exitCode @?= ExitSuccess
+        result ^. #stderrLines
+          @?= ["Binding sources (values redacted):", "  recipe \"top-properties\" (1 plain bindings)"]
+        assertBool "does not explain the bound value" (not (any (Text.isInfixOf "10") (result ^. #stderrLines))),
       testCase "render atomically replaces an output file and reports its path" $
         withSystemTempDirectory "hurl-workbench-cli" $ \dir -> do
           manifest <- canonicalizePath (fixtureManifest "full")
@@ -193,7 +239,7 @@ commandTests =
             runTestCommand
               (GlobalOptions (Just manifest))
               dir
-              (RenderCommand (RenderOptions (WorkflowName "list-properties") (Just "rendered.hurl")))
+              (RenderCommand (RenderOptions (SelectWorkflow (WorkflowName "list-properties")) (Just "rendered.hurl") False))
           canonicalOutput <- canonicalizePath output
           result ^. #exitCode @?= ExitSuccess
           result ^. #stdoutLines @?= []
@@ -208,7 +254,7 @@ commandTests =
           runTestCommand
             (GlobalOptions (Just manifest))
             "."
-            (RenderCommand (RenderOptions (WorkflowName "list-properties") (Just source)))
+            (RenderCommand (RenderOptions (SelectWorkflow (WorkflowName "list-properties")) (Just source) False))
         result ^. #exitCode @?= ExitFailure 1
         after <- Text.IO.readFile source
         after @?= before
@@ -221,20 +267,61 @@ commandTests =
               (Right (testCapabilities executable))
               ( RunCommand
                   ExecuteOptions
-                    { workflow = WorkflowName "health",
+                    { selection = SelectWorkflow (WorkflowName "health"),
                       bindings = BindingOptions ["baseUrl=http://127.0.0.1"] [] [] [],
-                      hurl = defaultCliHurlOptions
+                      hurl = defaultCliHurlOptions,
+                      allowMutating = False
                     }
               )
           result ^. #exitCode @?= ExitFailure 17,
       testCase "run uses exit 2 for binding errors and exit 3 for dependency errors" $
         withSystemTempDirectory "hurl-workbench-cli-exits" $ \dir -> do
           executable <- writeExitHurl dir 0
-          let command = RunCommand (ExecuteOptions (WorkflowName "health") emptyBindingOptions defaultCliHurlOptions)
+          let command = RunCommand (ExecuteOptions (SelectWorkflow (WorkflowName "health")) emptyBindingOptions defaultCliHurlOptions False)
           bindingFailure <- runExecutionCommand (Right (testCapabilities executable)) command
           bindingFailure ^. #exitCode @?= ExitFailure 2
           dependencyFailure <- runExecutionCommand (Left (DependencyNotFound "hurl" "hurl")) command
           dependencyFailure ^. #exitCode @?= ExitFailure 3,
+      testCase "mutating recipes require an explicit invocation gate" $
+        withSystemTempDirectory "hurl-workbench-cli-mutation" $ \dir -> do
+          executable <- writeExitHurl dir 0
+          let recipeCommand allowed =
+                RunCommand
+                  ExecuteOptions
+                    { selection = SelectRecipe (RecipeName "dangerous-health"),
+                      bindings = BindingOptions ["baseUrl=http://127.0.0.1"] [] [] [],
+                      hurl = defaultCliHurlOptions,
+                      allowMutating = allowed
+                    }
+          denied <- runExecutionCommand (Right (testCapabilities executable)) (recipeCommand False)
+          denied ^. #exitCode @?= ExitFailure 2
+          assertBool "explains the safety gate" (any (Text.isInfixOf "requires --allow-mutating") (denied ^. #stderrLines))
+          allowed <- runExecutionCommand (Right (testCapabilities executable)) (recipeCommand True)
+          allowed ^. #exitCode @?= ExitSuccess,
+      testCase "parallel client matrices require and populate isolated artifacts" $
+        withSystemTempDirectory "hurl-workbench-cli-matrix" $ \dir -> do
+          executable <- writeExitHurl dir 0
+          let options outputDirectory =
+                MatrixOptions
+                  { matrix = MatrixName "health-cases",
+                    mode = ClientMode,
+                    jobs = positiveJobs 2,
+                    failFastOverride = Nothing,
+                    allowMutating = False,
+                    outputDirectory,
+                    overwrite = False,
+                    bindings = BindingOptions ["baseUrl=http://127.0.0.1"] [] [] [],
+                    hurl = defaultCliHurlOptions
+                  }
+          rejected <- runExecutionCommand (Right (testCapabilities executable)) (MatrixCommand (options Nothing))
+          rejected ^. #exitCode @?= ExitFailure 2
+          assertBool "requires output isolation" (any (Text.isInfixOf "require --output-dir") (rejected ^. #stderrLines))
+          let output = dir </> "responses"
+          result <- runExecutionCommand (Right (testCapabilities executable)) (MatrixCommand (options (Just output)))
+          result ^. #exitCode @?= ExitSuccess
+          length (filter (Text.isPrefixOf "PASS") (result ^. #stderrLines)) @?= 3
+          for_ ["first", "second", "third"] $ \caseName ->
+            ByteString.readFile (output </> "health-cases" </> caseName <> ".response") >>= (@?= ""),
       testCase "doctor reports both executable paths and versions without a workspace" $ do
         let capabilities = testCapabilities "/tools/hurl"
         result <- runExecutionCommand (Right capabilities) DoctorCommand

@@ -38,7 +38,7 @@ jobs:
 features:
   - name: recipe-and-matrix-expansion
     description: Bind reusable workflow defaults and expand named matrix cases deterministically.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A three-case matrix expands in declared order to three prepared runs with distinct bindings and stable case identities.
@@ -46,7 +46,7 @@ features:
       - compare-api-behavior-across-cases
   - name: bounded-isolated-execution
     description: Execute independent cases with bounded concurrency and per-case output capture.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A concurrent three-case run never exceeds the configured limit and reports non-interleaved stdout, stderr, provenance, duration, and outcome for every case.
@@ -54,7 +54,7 @@ features:
       - understand-each-concurrent-result
   - name: mutating-run-gate
     description: Require explicit runtime authorization before executing a mutating recipe or matrix.
-    status: planned
+    status: delivered
     owners:
       - mori://shinzui/hurl-workbench
     acceptance: A mutating case is rejected before Hurl starts unless the invocation explicitly allows mutation; read-only cases need no such flag.

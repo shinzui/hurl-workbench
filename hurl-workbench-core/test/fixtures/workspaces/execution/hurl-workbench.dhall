@@ -21,6 +21,11 @@ in  Schema.Workspace::{
         , workflow = "health"
         , safety = Schema.Safety.ReadOnly
         }
+      , Schema.Recipe::{
+        , name = "dangerous-health"
+        , workflow = "health"
+        , safety = Schema.Safety.Mutating
+        }
       ]
     , matrices =
       [ Schema.Matrix::{

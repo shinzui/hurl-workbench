@@ -130,7 +130,7 @@ mutations and special perimeter cases.
 | EP-1 | Define the Typed Hurl Workspace Contract | `docs/plans/1-define-the-typed-hurl-workspace-contract.md` | EP-7 | None | Complete |
 | EP-2 | Compose and Render Reusable Hurl Workflows | `docs/plans/2-compose-and-render-reusable-hurl-workflows.md` | EP-1 | None | Complete |
 | EP-3 | Execute Hurl Workflows Securely | `docs/plans/3-execute-hurl-workflows-securely.md` | EP-2 | None | Complete |
-| EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | In Progress |
+| EP-4 | Add Recipes Matrices and Exploratory Runs | `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` | EP-3 | None | Complete |
 | EP-5 | Orchestrate Services and Integration Test Suites | `docs/plans/5-orchestrate-services-and-integration-test-suites.md` | EP-4 | None | Not Started |
 | EP-6 | Harden Document and Package the Workbench | `docs/plans/6-harden-document-and-package-the-workbench.md` | EP-4, EP-5 | None | Not Started |
 
@@ -201,11 +201,12 @@ constraint concrete must create or update the corresponding ADR.
   secret transport, the typed single-run Hurl adapter, capability detection, a shared fixture
   server, and grouped `run`, `test`, and `doctor` commands. All 47 core and 22 CLI tests pass,
   and real Hurl 8.0.1 client/test/doctor smoke runs succeed.
-- [ ] (2026-09-20) EP-4 is in progress; selection expansion, layered binding precedence,
-  all-cases-before-spawn preparation, bounded fail-fast execution, and owner-only response
-  artifacts are complete, with CLI/example delivery next. EP-5 and EP-6 remain not started.
-  The initiative-wide Nix gate also has a pre-existing multi-package default-output failure
-  assigned to EP-6.
+- [x] (2026-09-20) EP-4 delivered recipe/matrix selection and preparation, committed binding
+  precedence, bounded fail-fast execution, owner-only response artifacts, safety-gated CLI UX,
+  and the fixture-backed vendor/OData example. All 54 core and 27 CLI tests pass, and its real
+  three-case client matrix produced distinct responses in declaration order.
+- [ ] EP-5 and EP-6 remain not started. The initiative-wide Nix gate also has a pre-existing
+  multi-package default-output failure assigned to EP-6.
 
 
 ## Surprises & Discoveries
@@ -305,6 +306,16 @@ constraint concrete must create or update the corresponding ADR.
   Evidence: `docs/plans/3-execute-hurl-workflows-securely.md` and
   `docs/adr/4-secure-hurl-process-boundary.md`.
 
+- Observation: EP-4's concrete shared surface is
+  `HurlWorkbench.Run.Selection.{RunSelection,SafetyDisposition,ExpandedRun,BindingLayer}`,
+  `HurlWorkbench.Run.Prepare.{PreparedRun,prepareSelection,buildBatchCase}`, and
+  `HurlWorkbench.Run.Batch.{PositiveInt,BatchOptions,BatchCase,CaseOutcome,CaseResult,
+  BatchResult,runBatch}`. Selection preparation accumulates every preflight error before
+  execution; batch results remain in declaration order even when completion is out of order.
+  EP-5 must reuse these types rather than create suite-specific execution outcomes.
+  Evidence: `docs/plans/4-add-recipes-matrices-and-exploratory-runs.md` and
+  `docs/adr/5-bounded-isolated-batch-execution.md`.
+
 
 ## Decision Log
 
@@ -378,7 +389,10 @@ a competing grammar; that boundary is recorded in
 `docs/adr/3-opaque-hurl-fragment-composition.md`. EP-3 is complete: declared bindings cross an
 owner-only file boundary into one faithful Hurl invocation, and the public CLI exposes client,
 test, and dependency-diagnostic flows; the boundary is recorded in
-`docs/adr/4-secure-hurl-process-boundary.md`. EP-4 through EP-6 remain pending and must preserve
+`docs/adr/4-secure-hurl-process-boundary.md`. EP-4 is complete: recipes and matrices reduce to
+prepared secure requests, bounded workers preserve truthful ordered outcomes, mutating selections
+are explicitly gated, and the vendor/OData example passes end to end; the batch boundary is recorded
+in `docs/adr/5-bounded-isolated-batch-execution.md`. EP-5 and EP-6 remain pending and must preserve
 the ratified acceptance contracts and completed interfaces. The initiative-wide Nix package gate
 remains pending EP-6's documented multi-package repair.
 
@@ -408,3 +422,7 @@ implementable child plan.
 2026-09-20: Implemented EP-3, marked it Complete, recorded the secure Hurl process boundary and
 concrete runner/binding interfaces, and marked the delivered UC-1 and UC-4 feature slices. EP-4 is
 now the next implementable child plan.
+
+2026-09-20: Implemented EP-4, marked it Complete, recorded bounded isolated batch execution,
+delivered the vendor/OData example and all UC-2 features, and exposed the selection/preparation/
+batch APIs consumed by EP-5. EP-5 is now the next implementable child plan.

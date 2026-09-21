@@ -1,6 +1,7 @@
 module HurlWorkbench.Cli.Command.Run
   ( runExecute,
     runExecuteWith,
+    buildExecutionInputs,
   )
 where
 
@@ -17,9 +18,9 @@ import HurlWorkbench.Hurl.Format
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.Prepare
+import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
-import HurlWorkbench.Workflow.Resolve
-import HurlWorkbench.Workspace.Context (lookupWorkflow)
 import HurlWorkbench.Workspace.Types
 import HurlWorkbench.Workspace.Validate (isValidEnvironmentName, isValidParameterName)
 import System.Exit (ExitCode (..))
@@ -38,50 +39,56 @@ runExecuteWith ::
 runExecuteWith detectCapabilities validateRendered global currentDirectory mode executeOptions =
   loadValidatedWorkspace global currentDirectory >>= \case
     Left errors -> pure (workbenchFailure 2 errors)
-    Right validated -> case lookupWorkflow (executeOptions ^. #workflow) validated of
-      Nothing -> pure (workbenchFailure 2 ["error: unknown workflow \"" <> unWorkflowName (executeOptions ^. #workflow) <> "\""])
-      Just workflow -> case resolveWorkflow validated (executeOptions ^. #workflow) of
-        Left err -> pure (workbenchFailure 2 ["error: " <> renderWorkflowError err])
-        Right resolved ->
-          renderWorkflow resolved >>= \case
-            Left err -> pure (workbenchFailure 2 ["error: " <> renderRenderError err])
-            Right rendered ->
-              detectCapabilities >>= \case
-                Left err -> pure (workbenchFailure 3 ["error: " <> renderDependencyError err])
-                Right capabilities ->
-                  validateRendered (capabilities ^. #hurlfmt) rendered >>= \case
-                    Left err -> pure (workbenchFailure (hurlfmtExitCode err) ["error: " <> renderHurlfmtError err])
-                    Right () -> case buildInputs executeOptions of
-                      Left errors -> pure (workbenchFailure 2 (map ("error: " <>) errors))
-                      Right (bindingInput, hurlOptions) ->
-                        resolveWorkflowBindings validated workflow bindingInput >>= \case
-                          Left err -> pure (workbenchFailure 2 (map ("error: " <>) (Text.lines (renderBindingError err))))
-                          Right bindings -> do
-                            executed <-
-                              runHurl
-                                (mkHurlRunner capabilities)
-                                RunRequest
-                                  { renderedWorkflow = rendered,
-                                    mode,
-                                    bindings,
-                                    options = hurlOptions,
-                                    outputPolicy = InheritRunOutput,
-                                    reportTargets = []
-                                  }
-                            pure $ case executed of
-                              Left err ->
-                                workbenchFailure
-                                  (runStartExitCode err)
-                                  ["error: " <> renderRunStartError err]
-                              Right result ->
-                                CommandResult
-                                  { stdoutLines = [],
-                                    stderrLines = hurlCapabilityWarnings capabilities,
-                                    exitCode = result ^. #exitCode
-                                  }
+    Right validated -> case buildExecutionInputs executeOptions of
+      Left errors -> pure (workbenchFailure 2 (map ("error: " <>) errors))
+      Right (bindingInput, hurlOptions) ->
+        detectCapabilities >>= \case
+          Left err -> pure (workbenchFailure 3 ["error: " <> renderDependencyError err])
+          Right capabilities ->
+            prepareSelectionWith
+              validateRendered
+              (capabilities ^. #hurlfmt)
+              validated
+              bindingInput
+              hurlOptions
+              (executeOptions ^. #selection)
+              >>= \case
+                Left errors ->
+                  pure
+                    ( workbenchFailure
+                        (preparationExitCode errors)
+                        (map (("error: " <>) . renderPreparationError) (toList errors))
+                    )
+                Right (prepared :| [])
+                  | mutatingDenied (executeOptions ^. #allowMutating) (prepared ^. #safety) ->
+                      pure (workbenchFailure 2 ["error: mutating recipe requires --allow-mutating"])
+                  | otherwise -> do
+                      executed <-
+                        runHurl
+                          (mkHurlRunner capabilities)
+                          RunRequest
+                            { renderedWorkflow = prepared ^. #renderedWorkflow,
+                              mode,
+                              bindings = prepared ^. #bindings,
+                              options = prepared ^. #options,
+                              outputPolicy = InheritRunOutput,
+                              reportTargets = []
+                            }
+                      pure $ case executed of
+                        Left err ->
+                          workbenchFailure
+                            (runStartExitCode err)
+                            ["error: " <> renderRunStartError err]
+                        Right result ->
+                          CommandResult
+                            { stdoutLines = [],
+                              stderrLines = hurlCapabilityWarnings capabilities,
+                              exitCode = result ^. #exitCode
+                            }
+                Right _ -> pure (workbenchFailure 2 ["error: run and test accept one workflow or recipe, not a matrix"])
 
-buildInputs :: ExecuteOptions -> Either [Text] (BindingInput, HurlOptions)
-buildInputs executeOptions = do
+buildExecutionInputs :: ExecuteOptions -> Either [Text] (BindingInput, HurlOptions)
+buildExecutionInputs executeOptions = do
   plain <- parseUnique "--variable" parsePlain (executeOptions ^. #bindings . #variables)
   secretEnvironments <- parseUnique "--secret-env" parseSecretEnvironment (executeOptions ^. #bindings . #secretEnvironments)
   additional <- collect (map (first renderCliHurlOptionError . mkAllowedHurlArgument) (executeOptions ^. #hurl . #additionalArguments))
@@ -168,6 +175,19 @@ hurlfmtExitCode = \case
   InvalidHurl {} -> 2
   HurlfmtNotFound {} -> 3
   HurlfmtFailed {} -> 3
+
+preparationExitCode :: NonEmpty PreparationError -> Int
+preparationExitCode errors =
+  maximum (map one (toList errors))
+  where
+    one = \case
+      RunFormatFailed _ err -> hurlfmtExitCode err
+      _ -> 2
+
+mutatingDenied :: Bool -> SafetyDisposition -> Bool
+mutatingDenied allowed = \case
+  Classified Mutating -> not allowed
+  _ -> False
 
 runStartExitCode :: RunStartError -> Int
 runStartExitCode = \case

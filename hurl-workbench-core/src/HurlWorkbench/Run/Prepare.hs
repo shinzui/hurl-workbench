@@ -4,6 +4,7 @@ module HurlWorkbench.Run.Prepare
   ( PreparedRun (..),
     PreparationError (..),
     prepareSelection,
+    prepareSelectionWith,
     buildBatchCase,
     renderPreparationError,
   )
@@ -45,7 +46,10 @@ data CachedWorkflow
   | CachedRendered !RenderedWorkflow
 
 prepareSelection :: HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
-prepareSelection capabilities validated input hurlOptions selection =
+prepareSelection = prepareSelectionWith validateRenderedWorkflow
+
+prepareSelectionWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionWith validateRendered capabilities validated input hurlOptions selection =
   case resolveSelection validated selection of
     Left err -> pure (Left (SelectionPreparationFailed err :| []))
     Right expanded -> do
@@ -95,7 +99,7 @@ prepareSelection capabilities validated input hurlOptions selection =
       renderWorkflow (expanded ^. #workflow) >>= \case
         Left err -> pure (CachedRenderFailure err)
         Right rendered ->
-          validateRenderedWorkflow capabilities rendered <&> \case
+          validateRendered capabilities rendered <&> \case
             Left err -> CachedFormatFailure err
             Right () -> CachedRendered rendered
 

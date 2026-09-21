@@ -2,9 +2,10 @@
 --
 -- > hurl-workbench [--workspace FILE] validate
 -- > hurl-workbench [--workspace FILE] list [all|parameters|fragments|workflows|recipes|matrices|services|suites]
--- > hurl-workbench [--workspace FILE] render workflow NAME [--output FILE]
--- > hurl-workbench [--workspace FILE] run workflow NAME [OPTIONS]
--- > hurl-workbench [--workspace FILE] test workflow NAME [OPTIONS]
+-- > hurl-workbench [--workspace FILE] render (workflow|recipe) NAME [--output FILE]
+-- > hurl-workbench [--workspace FILE] run (workflow|recipe) NAME [OPTIONS]
+-- > hurl-workbench [--workspace FILE] test (workflow|recipe) NAME [OPTIONS]
+-- > hurl-workbench [--workspace FILE] matrix NAME [OPTIONS]
 -- > hurl-workbench doctor
 module HurlWorkbench.Cli.Options
   ( Options (..),
@@ -12,6 +13,7 @@ module HurlWorkbench.Cli.Options
     Command (..),
     RenderOptions (..),
     ExecuteOptions (..),
+    MatrixOptions (..),
     BindingOptions (..),
     emptyBindingOptions,
     CliHurlOptions (..),
@@ -25,9 +27,11 @@ module HurlWorkbench.Cli.Options
 where
 
 import Data.Text qualified as Text
-import HurlWorkbench.Hurl.Run (HurlVerbosity (..))
+import HurlWorkbench.Hurl.Run (HurlRunMode (..), HurlVerbosity (..))
 import HurlWorkbench.Prelude hiding (argument)
-import HurlWorkbench.Workspace.Types (WorkflowName (..))
+import HurlWorkbench.Run.Batch (PositiveInt, mkPositiveInt)
+import HurlWorkbench.Run.Selection (RunSelection (..))
+import HurlWorkbench.Workspace.Types (MatrixName (..), RecipeName (..), WorkflowName (..))
 import Options.Applicative
   ( Parser,
     ParserInfo,
@@ -57,6 +61,7 @@ import Options.Applicative
     (<**>),
     (<|>),
   )
+import Text.Read (readMaybe)
 
 -- | Parsed argv.
 data Options = Options
@@ -79,18 +84,34 @@ data Command
   | RenderCommand !RenderOptions
   | RunCommand !ExecuteOptions
   | TestCommand !ExecuteOptions
+  | MatrixCommand !MatrixOptions
   | DoctorCommand
   deriving stock (Generic, Eq, Show)
 
 -- | Options for rendering one named workflow.
 data RenderOptions = RenderOptions
-  { workflow :: !WorkflowName,
-    output :: !(Maybe FilePath)
+  { selection :: !RunSelection,
+    output :: !(Maybe FilePath),
+    explain :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
 data ExecuteOptions = ExecuteOptions
-  { workflow :: !WorkflowName,
+  { selection :: !RunSelection,
+    bindings :: !BindingOptions,
+    hurl :: !CliHurlOptions,
+    allowMutating :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+data MatrixOptions = MatrixOptions
+  { matrix :: !MatrixName,
+    mode :: !HurlRunMode,
+    jobs :: !PositiveInt,
+    failFastOverride :: !(Maybe Bool),
+    allowMutating :: !Bool,
+    outputDirectory :: !(Maybe FilePath),
+    overwrite :: !Bool,
     bindings :: !BindingOptions,
     hurl :: !CliHurlOptions
   }
@@ -139,6 +160,10 @@ defaultCliHurlOptions =
 data HttpRetryOptions = HttpRetryOptions !(Maybe Int) !(Maybe Int) !(Maybe Int) !(Maybe Int) !Bool
 
 data OutputDiagnosticOptions = OutputDiagnosticOptions !Bool !Bool !(Maybe HurlVerbosity) !(Maybe FilePath)
+
+data BatchControlOptions = BatchControlOptions !HurlRunMode !PositiveInt !(Maybe Bool) !Bool
+
+data MatrixOutputOptions = MatrixOutputOptions !(Maybe FilePath) !Bool !OutputDiagnosticOptions
 
 -- | Which entities @list@ prints.
 data ListCategory
@@ -237,6 +262,12 @@ commandParser =
               (progDesc "Execute one workflow in Hurl test mode")
           )
         <> command
+          "matrix"
+          ( info
+              (MatrixCommand <$> matrixOptionsParser)
+              (progDesc "Execute every declared case in one named matrix")
+          )
+        <> command
           "doctor"
           ( info
               (pure DoctorCommand)
@@ -250,15 +281,21 @@ renderCommandParser =
     ( command
         "workflow"
         ( info
-            (RenderCommand <$> renderOptionsParser)
+            (RenderCommand <$> renderOptionsParser (SelectWorkflow . WorkflowName . Text.pack))
             (progDesc "Render one named workflow")
         )
+        <> command
+          "recipe"
+          ( info
+              (RenderCommand <$> renderOptionsParser (SelectRecipe . RecipeName . Text.pack))
+              (progDesc "Render the workflow selected by one named recipe")
+          )
     )
 
-renderOptionsParser :: Parser RenderOptions
-renderOptionsParser =
+renderOptionsParser :: (String -> RunSelection) -> Parser RenderOptions
+renderOptionsParser selectionConstructor =
   RenderOptions
-    <$> (WorkflowName . Text.pack <$> strArgument (metavar "NAME" <> help "Workflow name"))
+    <$> (selectionConstructor <$> strArgument (metavar "NAME" <> help "Workflow or recipe name"))
     <*> parserOptionGroup
       "Output"
       ( optional
@@ -269,6 +306,7 @@ renderOptionsParser =
               )
           )
       )
+    <*> switch (long "explain" <> help "Print the recipe's binding sources to stderr without values")
 
 executeCommandParser :: (ExecuteOptions -> Command) -> Parser Command
 executeCommandParser constructor =
@@ -276,17 +314,82 @@ executeCommandParser constructor =
     ( command
         "workflow"
         ( info
-            (constructor <$> executeOptionsParser)
-            (progDesc "Execute one named workflow")
+            (constructor <$> executeOptionsParser (SelectWorkflow . WorkflowName . Text.pack))
+            (progDesc "Execute one unclassified low-level workflow")
         )
+        <> command
+          "recipe"
+          ( info
+              (constructor <$> executeOptionsParser (SelectRecipe . RecipeName . Text.pack))
+              (progDesc "Execute one safety-classified recipe")
+          )
     )
 
-executeOptionsParser :: Parser ExecuteOptions
-executeOptionsParser =
+executeOptionsParser :: (String -> RunSelection) -> Parser ExecuteOptions
+executeOptionsParser selectionConstructor =
   ExecuteOptions
-    <$> (WorkflowName . Text.pack <$> strArgument (metavar "NAME" <> help "Workflow name"))
+    <$> (selectionConstructor <$> strArgument (metavar "NAME" <> help "Workflow or recipe name"))
     <*> bindingOptionsParser
     <*> cliHurlOptionsParser
+    <*> parserOptionGroup
+      "Execution safety"
+      (switch (long "allow-mutating" <> help "Authorize this invocation to run a mutating recipe"))
+
+matrixOptionsParser :: Parser MatrixOptions
+matrixOptionsParser =
+  assemble
+    <$> (MatrixName . Text.pack <$> strArgument (metavar "NAME" <> help "Matrix name"))
+    <*> batchControlOptionsParser
+    <*> bindingOptionsParser
+    <*> httpRetryOptionsParser
+    <*> matrixOutputOptionsParser
+    <*> advancedArgumentsParser
+  where
+    assemble
+      matrix
+      (BatchControlOptions mode jobs failFastOverride allowMutating)
+      bindings
+      http
+      (MatrixOutputOptions outputDirectory overwrite diagnostics)
+      additionalArguments =
+        MatrixOptions
+          { matrix,
+            mode,
+            jobs,
+            failFastOverride,
+            allowMutating,
+            outputDirectory,
+            overwrite,
+            bindings,
+            hurl = assembleCliHurlOptions http diagnostics additionalArguments
+          }
+
+batchControlOptionsParser :: Parser BatchControlOptions
+batchControlOptionsParser =
+  parserOptionGroup "Batch control" $
+    BatchControlOptions
+      <$> option
+        (eitherReader parseMode)
+        (long "mode" <> metavar "run|test" <> value ClientMode <> help "Use Hurl client mode (run) or test mode")
+      <*> option
+        (eitherReader parsePositiveInt)
+        (long "jobs" <> metavar "N" <> value oneJob <> help "Maximum concurrent Hurl processes (default: 1)")
+      <*> optional
+        ( flag' True (long "fail-fast" <> help "Stop scheduling after the first observed failure")
+            <|> flag' False (long "keep-going" <> help "Run every case despite failures")
+        )
+      <*> switch (long "allow-mutating" <> help "Authorize every mutating case in this invocation")
+
+matrixOutputOptionsParser :: Parser MatrixOutputOptions
+matrixOutputOptionsParser =
+  parserOptionGroup "Output" $
+    MatrixOutputOptions
+      <$> optional
+        ( strOption
+            (long "output-dir" <> metavar "DIR" <> help "Write one owner-only client response artifact per case")
+        )
+      <*> switch (long "overwrite" <> help "Replace the exact response artifacts for this batch")
+      <*> outputDiagnosticOptionsFields
 
 bindingOptionsParser :: Parser BindingOptions
 bindingOptionsParser =
@@ -324,24 +427,25 @@ bindingOptionsParser =
         )
 
 cliHurlOptionsParser :: Parser CliHurlOptions
-cliHurlOptionsParser = assemble <$> httpRetryOptionsParser <*> outputDiagnosticOptionsParser <*> advancedArgumentsParser
-  where
-    assemble
-      (HttpRetryOptions connectTimeout maxTime retries retryInterval insecure)
-      (OutputDiagnosticOptions include json verbosity curl)
-      additional =
-        CliHurlOptions
-          { connectTimeoutSeconds = connectTimeout,
-            maxTimeSeconds = maxTime,
-            retryCount = retries,
-            retryIntervalMilliseconds = retryInterval,
-            insecureTls = insecure,
-            includeHeaders = include,
-            jsonOutput = json,
-            verbosity,
-            curlExportPath = curl,
-            additionalArguments = additional
-          }
+cliHurlOptionsParser = assembleCliHurlOptions <$> httpRetryOptionsParser <*> outputDiagnosticOptionsParser <*> advancedArgumentsParser
+
+assembleCliHurlOptions :: HttpRetryOptions -> OutputDiagnosticOptions -> [Text] -> CliHurlOptions
+assembleCliHurlOptions
+  (HttpRetryOptions connectTimeout maxTime retries retryInterval insecure)
+  (OutputDiagnosticOptions include json verbosity curl)
+  additional =
+    CliHurlOptions
+      { connectTimeoutSeconds = connectTimeout,
+        maxTimeSeconds = maxTime,
+        retryCount = retries,
+        retryIntervalMilliseconds = retryInterval,
+        insecureTls = insecure,
+        includeHeaders = include,
+        jsonOutput = json,
+        verbosity,
+        curlExportPath = curl,
+        additionalArguments = additional
+      }
 
 httpRetryOptionsParser :: Parser HttpRetryOptions
 httpRetryOptionsParser =
@@ -355,21 +459,24 @@ httpRetryOptionsParser =
 
 outputDiagnosticOptionsParser :: Parser OutputDiagnosticOptions
 outputDiagnosticOptionsParser =
-  parserOptionGroup "Output and diagnostics" $
-    OutputDiagnosticOptions
-      <$> switch (long "include" <> help "Include response headers in client output")
-      <*> switch (long "json" <> help "Emit JSON output where Hurl supports it")
-      <*> optional
-        ( flag' Verbose (long "verbose" <> help "Enable Hurl verbose diagnostics")
-            <|> flag' VeryVerbose (long "very-verbose" <> help "Enable Hurl and libcurl debug diagnostics")
-        )
-      <*> optional
-        ( strOption
-            ( long "curl"
-                <> metavar "FILE"
-                <> help "Export requests as curl commands to an owner-only file"
-            )
-        )
+  parserOptionGroup "Output and diagnostics" outputDiagnosticOptionsFields
+
+outputDiagnosticOptionsFields :: Parser OutputDiagnosticOptions
+outputDiagnosticOptionsFields =
+  OutputDiagnosticOptions
+    <$> switch (long "include" <> help "Include response headers in client output")
+    <*> switch (long "json" <> help "Emit JSON output where Hurl supports it")
+    <*> optional
+      ( flag' Verbose (long "verbose" <> help "Enable Hurl verbose diagnostics")
+          <|> flag' VeryVerbose (long "very-verbose" <> help "Enable Hurl and libcurl debug diagnostics")
+      )
+    <*> optional
+      ( strOption
+          ( long "curl"
+              <> metavar "FILE"
+              <> help "Export requests as curl commands to an owner-only file"
+          )
+      )
 
 advancedArgumentsParser :: Parser [Text]
 advancedArgumentsParser =
@@ -386,6 +493,24 @@ advancedArgumentsParser =
 integerOption :: String -> String -> String -> Parser Int
 integerOption name valueName description =
   option auto (long name <> metavar valueName <> help description)
+
+parseMode :: String -> Either String HurlRunMode
+parseMode = \case
+  "run" -> Right ClientMode
+  "test" -> Right TestMode
+  other -> Left ("unknown matrix mode " <> show other <> "; expected run or test")
+
+parsePositiveInt :: String -> Either String PositiveInt
+parsePositiveInt raw = case readMaybe raw of
+  Nothing -> Left ("expected a positive integer, got " <> show raw)
+  Just parsedValue -> case mkPositiveInt parsedValue of
+    Left _ -> Left ("expected a positive integer, got " <> show raw)
+    Right positive -> Right positive
+
+oneJob :: PositiveInt
+oneJob = case mkPositiveInt 1 of
+  Right positive -> positive
+  Left _ -> error "one is positive"
 
 listCategoryParser :: Parser ListCategory
 listCategoryParser =

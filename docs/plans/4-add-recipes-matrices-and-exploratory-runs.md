@@ -52,7 +52,10 @@ of being forced into a generic abstraction.
 - [x] (2026-09-20) Milestone 2: added a fixed STM worker queue, deterministic typed
   outcomes, fail-fast skipping, and collision-checked owner-only response artifacts; all
   54 core and 23 CLI tests pass, including a real three-case Hurl 8.0.1 matrix.
-- [ ] Milestone 3: expose recipe and matrix UX plus the representative vendor example.
+- [x] (2026-09-20) Milestone 3: exposed recipe-aware render/run/test and the safety-gated
+  matrix command, then added and ran the fixture-backed vendor/OData example; all 54 core
+  and 27 CLI tests pass, and the real three-case client matrix produced distinct `0600`
+  responses with the expected MLS-specific values.
 
 
 ## Surprises & Discoveries
@@ -76,6 +79,12 @@ of being forced into a generic abstraction.
   lifetime management, while the workbench's STM queue owns scheduling and fail-fast.
   Evidence: `mori registry search async`, `cabal info async`, the unpacked 2.2.6 source,
   and upstream release tags checked on 2026-09-20.
+
+- Observation: Hurl decodes the example's percent-encoded committed filter and ordering
+  values when constructing the actual request, while the workbench transports those values
+  unchanged through its variable-file boundary. Each fixture response therefore showed the
+  intended human-readable closed/sold filter without the workbench interpreting OData.
+  Evidence: the real `property-by-mls` smoke run and its three response artifacts.
 
 
 ## Decision Log
@@ -116,7 +125,20 @@ of being forced into a generic abstraction.
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+EP-4 is complete. Workflow, recipe, and matrix selections now share one pure expansion and
+all-cases-before-spawn preparation path. Committed plain layers follow the documented
+precedence without admitting secrets; a fixed STM worker queue supplies bounded concurrency,
+fail-fast, stable declaration-order results, and truthful passed/Hurl-failed/start-failed/
+skipped outcomes. Client response artifacts are collision-checked and owner-only, while
+parallel diagnostics remain captured and replayed in declaration order.
+
+The CLI renders and executes both workflows and recipes, clearly identifies direct workflows
+as unclassified, gates every mutating recipe/matrix invocation with `--allow-mutating`, and
+requires isolated output for parallel client runs. The fixture-backed `examples/vendor-odata/`
+workspace demonstrates one shared OAuth fragment, resource recipes, three MLS cases including
+the sold-status exception, and separate bespoke/raw investigations. The durable scheduler and
+artifact rules are recorded in `docs/adr/5-bounded-isolated-batch-execution.md`. EP-5 can consume
+the completed selection, preparation, batch, safety, and result APIs directly.
 
 
 ## Context and Orientation
@@ -504,3 +526,7 @@ Jitsurei Hurl-suite standard.
 
 2026-09-20: Replaced the unsupported treefmt `--check` flag with the pinned CLI's `--ci`
 fail-on-change mode after EP-2 exercised the repository acceptance commands.
+
+2026-09-20: Implemented all three milestones, recorded the bounded isolated batch ADR, added
+the fixture-backed vendor/OData example and exploration guide, verified the real three-case
+matrix, and marked all UC-2 feature slices delivered.

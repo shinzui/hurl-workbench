@@ -9,6 +9,7 @@ where
 
 import HurlWorkbench.Cli.Command.Doctor (runDoctorWith)
 import HurlWorkbench.Cli.Command.List (runList)
+import HurlWorkbench.Cli.Command.Matrix (runMatrixWith)
 import HurlWorkbench.Cli.Command.Render (runRenderWith)
 import HurlWorkbench.Cli.Command.Run (runExecuteWith)
 import HurlWorkbench.Cli.Command.Validate (runValidateWith)
@@ -102,4 +103,5 @@ runCommandWithDependencies detectHurlfmt detectHurl validateRendered validateSyn
   RenderCommand options -> runRenderWith detectHurlfmt validateRendered global currentDirectory options
   RunCommand options -> runExecuteWith detectHurl validateRendered global currentDirectory ClientMode options
   TestCommand options -> runExecuteWith detectHurl validateRendered global currentDirectory TestMode options
+  MatrixCommand options -> runMatrixWith detectHurl validateRendered global currentDirectory options
   DoctorCommand -> runDoctorWith detectHurl

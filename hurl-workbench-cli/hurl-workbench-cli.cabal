@@ -40,6 +40,7 @@ library
     HurlWorkbench.Cli
     HurlWorkbench.Cli.Command.Doctor
     HurlWorkbench.Cli.Command.List
+    HurlWorkbench.Cli.Command.Matrix
     HurlWorkbench.Cli.Command.Render
     HurlWorkbench.Cli.Command.Run
     HurlWorkbench.Cli.Command.Validate

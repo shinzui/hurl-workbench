@@ -12,12 +12,13 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import HurlWorkbench.Cli.Options (GlobalOptions, RenderOptions)
-import HurlWorkbench.Cli.Output (CommandResult (..), failure, success)
+import HurlWorkbench.Cli.Output (CommandResult (..), failure)
 import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
 import HurlWorkbench.Hurl.Format
+import HurlWorkbench.Parameter.Resolve (BindingSource (..))
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
-import HurlWorkbench.Workflow.Resolve
 import System.Directory (canonicalizePath, removeFile, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
@@ -37,10 +38,10 @@ runRenderWith ::
 runRenderWith detectCapabilities validateRendered global currentDirectory options =
   loadValidatedWorkspace global currentDirectory >>= \case
     Left errors -> pure (failure errors)
-    Right validated -> case resolveWorkflow validated (options ^. #workflow) of
-      Left err -> pure (failure ["error: " <> renderWorkflowError err])
-      Right resolved ->
-        renderWorkflow resolved >>= \case
+    Right validated -> case resolveSelection validated (options ^. #selection) of
+      Left err -> pure (failure ["error: " <> renderSelectionError err])
+      Right (expanded :| []) ->
+        renderWorkflow (expanded ^. #workflow) >>= \case
           Left err -> pure (failure ["error: " <> renderRenderError err])
           Right rendered ->
             detectCapabilities >>= \case
@@ -48,12 +49,19 @@ runRenderWith detectCapabilities validateRendered global currentDirectory option
               Right capabilities ->
                 validateRendered capabilities rendered >>= \case
                   Left err -> pure (failure ["error: " <> renderHurlfmtError err])
-                  Right () -> emitRendered currentDirectory options rendered
+                  Right () -> emitRendered currentDirectory options (explanation options expanded) rendered
+      Right _ -> pure (failure ["error: render accepts one workflow or recipe, not a matrix"])
 
-emitRendered :: FilePath -> RenderOptions -> RenderedWorkflow -> IO CommandResult
-emitRendered currentDirectory options rendered =
+emitRendered :: FilePath -> RenderOptions -> [Text] -> RenderedWorkflow -> IO CommandResult
+emitRendered currentDirectory options explanationLines rendered =
   case options ^. #output of
-    Nothing -> pure (success (Text.lines (rendered ^. #contents)))
+    Nothing ->
+      pure
+        CommandResult
+          { stdoutLines = Text.lines (rendered ^. #contents),
+            stderrLines = explanationLines,
+            exitCode = ExitSuccess
+          }
     Just requested -> do
       let requestedPath = if isAbsolute requested then requested else currentDirectory </> requested
       canonicalOutputResult <- try (canonicalizePath requestedPath)
@@ -74,11 +82,29 @@ emitRendered currentDirectory options rendered =
                   pure
                     CommandResult
                       { stdoutLines = [],
-                        stderrLines = [Text.pack canonicalOutput],
+                        stderrLines = Text.pack canonicalOutput : explanationLines,
                         exitCode = ExitSuccess
                       }
   where
     sourcePaths = map (view #fragmentPath) . NonEmpty.toList . view #sourceFragments
+
+explanation :: RenderOptions -> ExpandedRun -> [Text]
+explanation options expanded
+  | not (options ^. #explain) = []
+  | null (expanded ^. #bindingLayers) = ["Binding sources: none (direct workflow; safety unclassified)"]
+  | otherwise =
+      "Binding sources (values redacted):"
+        : [ "  "
+              <> renderSource (layer ^. #source)
+              <> " ("
+              <> Text.pack (show (length (layer ^. #values)))
+              <> " plain bindings)"
+          | layer <- expanded ^. #bindingLayers
+          ]
+  where
+    renderSource = \case
+      CommittedBinding label -> label
+      source -> Text.pack (show source)
 
 atomicWrite :: FilePath -> ByteString.ByteString -> IO (Either IOException ())
 atomicWrite target bytes =
