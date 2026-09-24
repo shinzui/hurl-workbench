@@ -28,5 +28,25 @@ in  Schema.Project::{
         , description = Some
             "JTBD use cases validating Hurl Workbench APIs and acceptance contracts"
         }
+      , Schema.OkfBundle::{
+        , name = "improvement-requests"
+        , path = "docs/improvement-requests"
+        , profile = Some "docs/improvement-requests/profile.dhall"
+        , profileBinding = Some
+            ( Schema.ProfileBinding.Published
+                Schema.PinnedImport::{
+                , publisher = "shinzui/okf-profiles"
+                , publisherRef = Some
+                    Schema.MoriRef::{ namespace = "shinzui", name = "okf-profiles" }
+                , export = Some "coordination.improvementRequests"
+                , version = Some "v0.18.0"
+                , pin = Some
+                    "sha256:7d3a4a22be12fd0e697d6012ed1eb2efe4cb5dc4700d08fd49aa5e4c0e523df8"
+                }
+            )
+        , okfVersion = "0.2"
+        , description = Some
+            "Cross-repository improvement requests owned by hurl-workbench"
+        }
       ]
     }
