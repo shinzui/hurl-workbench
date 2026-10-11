@@ -7,8 +7,8 @@ description: >-
   arbitrary hooks, such suites keep a shell harness around the workbench and lose its single
   ordered report.
 generated:
-  by: anthropic/claude-fable-5-1
-  at: "2026-09-24T14:20:00Z"
+  by: codex-cli/gpt-6.1-sol
+  at: "2026-10-11T16:18:19Z"
 requestId: IR-4
 status: proposed
 origin: mori://tan/notification-hub
@@ -22,6 +22,15 @@ acceptanceCriteria:
   - id: AC-3
     statement: validate rejects a check whose executable path escapes the workspace root or whose name collides with another check.
     verification: Negative validation fixtures.
+  - id: AC-4
+    statement: "Executable checks are barriers: preceding runs finish before a check starts and later runs wait for its result, including suites configured with jobs greater than one."
+    verification: "A recipe/check/recipe fixture records begin/end events with jobs=2 and proves both ordering boundaries and fail-fast behavior."
+  - id: AC-5
+    statement: "A check timeout or cancellation terminates its process group within the configured budget and reports the check failure separately from cleanup diagnostics."
+    verification: "A check spawning a child process exercises timeout and interruption; assert no remaining child and named status/duration/artifact entries."
+  - id: AC-6
+    statement: "An application-owned check can compare independently provisioned CLI and HTTP fixture results or semantic event counts using declared runtime inputs without putting credentials in argv or summaries."
+    verification: "Add a real command/parity example using supported domain/store APIs; assert mismatches fail and secret sentinels stay out of argv and summary metadata."
 reviews:
   - kind: model
     reviewer: claude-code
@@ -39,6 +48,20 @@ reviews:
       hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs (fixed --file-root), and flake.module.nix
       (packages.default exists, so packaging was not filed), and every claim about the requesting
       project against scripts/runtime-acceptance.sh and api/test/hurl in mori://tan/notification-hub.
+  - kind: model
+    reviewer: codex-cli
+    reviewed_at: "2026-10-11T16:18:19Z"
+    document_timestamp: "2026-10-11T16:18:19Z"
+    scope: technical-accuracy
+    outcome: commented
+    provider: openai
+    model: gpt-6.1-sol
+    effort: high
+    context: >-
+      Author's source assessment for the Rei adoption amendment, not independent
+      approval or implementation acceptance. Checked the current command, suite,
+      and lifecycle interfaces against Rei MP29 fixture requirements. Historical
+      reviews and confirmations remain tied to their original document revision.
 verified:
   - by: anthropic/claude-fable-5-1
     at: "2026-09-24T14:25:00Z"
@@ -75,3 +98,11 @@ Add a `Check` record and a `RunReference.Check Text`:
 
 Checks do not run at arbitrary points, do not see recipe or matrix binding layers beyond the plain
 values named in argv, and do not replace Hurl assertions where an HTTP response can carry the fact.
+
+## Rei adoption amendment — 2026-10-11
+
+mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract requires evidence that HTTP and CLI commands agree on changed/no-op, refusal, persisted facts, and discoverable information. Some checks inspect semantic event counts or compare normalized results from independent CLI/API twins. Those assertions belong in named application-owned executables using supported domain/store APIs; they must not introduce bespoke reads of framework-owned internal tables.
+
+Define checks as ordering barriers around the existing parallel batch engine, not as another concurrently scheduled batch member. Each check owns a bounded process group and report directory. Timeout, cancellation, expected-status mismatch, and cleanup failure must be distinguishable, while fail-fast prevents later dependent steps from starting. Retain the primary check failure if cleanup also fails.
+
+Allow declared runtime inputs to identify the two independent fixture targets. Apply the clean environment policy from `mori://shinzui/hurl-workbench/okf/improvement-requests/concepts/IR-6` when that extension is present. Typed contract/client, schema, and package-closure gates remain independently owned tests; this request enables useful ordered assertions rather than requiring every gate to move into workbench. Existing review entries cover the previous revision; the additional procedures are proposed acceptance evidence.

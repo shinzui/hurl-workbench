@@ -3,11 +3,11 @@ type: Improvement Request
 title: Allow a run-scoped file root for file request bodies
 description: >-
   The workbench always passes the workspace root as Hurl's file root, so a fragment that sends a
-  file body can only reference committed files; integration runs that write request files per run,
+  file body resolves under the workspace root; integration runs that write request files per run,
   with per-run keys or signatures, have nowhere the workbench will read them from.
 generated:
-  by: anthropic/claude-fable-5-1
-  at: "2026-09-24T14:20:00Z"
+  by: codex-cli/gpt-6.1-sol
+  at: "2026-10-11T16:18:19Z"
 requestId: IR-3
 status: proposed
 origin: mori://tan/notification-hub
@@ -21,6 +21,12 @@ acceptanceCriteria:
   - id: AC-3
     statement: Rendering and validation are unchanged, and summary.json records neither the directory nor the file contents.
     verification: Existing render and summary tests extended with the option present.
+  - id: AC-4
+    statement: "Two concurrent executions can use separate temporary roots containing different files with the same relative filename, and each sends its own exact bytes without modifying the workspace."
+    verification: "Run concurrent file-body scenarios against isolated endpoints and compare captured body hashes, including non-ASCII text and line endings."
+  - id: AC-5
+    statement: "The caller owns the supplied file root and its lifetime; workbench neither removes it nor resolves fragment source paths outside the workspace."
+    verification: "Exercise success, Hurl failure, and interruption, verify caller files remain, and retain source-path containment negative tests."
 reviews:
   - kind: model
     reviewer: claude-code
@@ -38,6 +44,20 @@ reviews:
       hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs (fixed --file-root), and flake.module.nix
       (packages.default exists, so packaging was not filed), and every claim about the requesting
       project against scripts/runtime-acceptance.sh and api/test/hurl in mori://tan/notification-hub.
+  - kind: model
+    reviewer: codex-cli
+    reviewed_at: "2026-10-11T16:18:19Z"
+    document_timestamp: "2026-10-11T16:18:19Z"
+    scope: technical-accuracy
+    outcome: commented
+    provider: openai
+    model: gpt-6.1-sol
+    effort: high
+    context: >-
+      Author's source assessment for the Rei adoption amendment, not independent
+      approval or implementation acceptance. Checked the current command, suite,
+      and lifecycle interfaces against Rei MP29 fixture requirements. Historical
+      reviews and confirmations remain tied to their original document revision.
 verified:
   - by: anthropic/claude-fable-5-1
     at: "2026-09-24T14:25:00Z"
@@ -70,3 +90,9 @@ resolved value is the directory, following the same substitution rule as HTTP re
 
 The option changes where Hurl looks for `file,…;` bodies and nothing else; it does not let fragments
 escape the workspace for their own source paths.
+
+## Rei adoption amendment — 2026-10-11
+
+mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract includes note and document content workflows. Test payloads may be generated in fixture-owned temporary directories and must preserve exact bytes while concurrent scenarios use distinct roots. The current limitation is confinement to the workspace file root, not a Git-tracking requirement: generated files can exist there today, but that dirties shared workspaces and creates races.
+
+Keep the option scoped to one execution. Parallel independently provisioned workbench invocations each receive their own root; no global mutable root or shared generated filename is introduced. Preserve caller ownership of temporary content and verify exact non-ASCII and line-ending bytes. Fragment sources still remain workspace-contained. These additions clarify adoption acceptance without adding upload storage, content generation, or arbitrary path resolution to workbench.

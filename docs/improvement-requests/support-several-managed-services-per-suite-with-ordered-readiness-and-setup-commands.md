@@ -6,8 +6,8 @@ description: >-
   that needs a database cluster, migrations, a stub provider, an HTTP server, and a background
   worker cannot be a workbench suite without a shell wrapper around it.
 generated:
-  by: anthropic/claude-fable-5-1
-  at: "2026-09-24T14:20:00Z"
+  by: codex-cli/gpt-6.1-sol
+  at: "2026-10-11T16:18:19Z"
 requestId: IR-1
 status: proposed
 origin: mori://tan/notification-hub
@@ -24,6 +24,15 @@ acceptanceCriteria:
   - id: AC-4
     statement: A failure of any managed service cancels active Hurl children and cleans up every process group with the existing exit 4 semantics.
     verification: The existing lifecycle tests extended to a suite with more than one service.
+  - id: AC-5
+    statement: "Services shut down in reverse successful-start order after partial startup, failed readiness, unexpected exit, or cancellation; teardown follows service shutdown and preserves the original failure alongside cleanup diagnostics."
+    verification: "Record process/phase events while failing the second or third service and interrupting a live suite; assert bounded cleanup and the retained primary failure."
+  - id: AC-6
+    statement: "Explicit stop/start/restart steps are execution barriers even when jobs is greater than one; an intentional stop is not classified as an unexpected service death."
+    verification: "Run Hurl cases around a worker restart with jobs=2 and assert no case overlaps the lifecycle step, readiness is rechecked, and the summary distinguishes expected stop from failure."
+  - id: AC-7
+    statement: "A real API, stub provider, and projection owner can share an externally leased disposable fixture, and a single accepted mutation is observed by bounded GET polling before all services stop."
+    verification: "Add a command/read integration example with all three services and failure/cancellation cases; assert one mutation attempt, owner-backed visibility, and release only after consumer processes exit."
 reviews:
   - kind: model
     reviewer: claude-code
@@ -41,6 +50,20 @@ reviews:
       hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs (fixed --file-root), and flake.module.nix
       (packages.default exists, so packaging was not filed), and every claim about the requesting
       project against scripts/runtime-acceptance.sh and api/test/hurl in mori://tan/notification-hub.
+  - kind: model
+    reviewer: codex-cli
+    reviewed_at: "2026-10-11T16:18:19Z"
+    document_timestamp: "2026-10-11T16:18:19Z"
+    scope: technical-accuracy
+    outcome: commented
+    provider: openai
+    model: gpt-6.1-sol
+    effort: high
+    context: >-
+      Author's source assessment for the Rei adoption amendment, not independent
+      approval or implementation acceptance. Checked the current command, suite,
+      and lifecycle interfaces against Rei MP29 fixture requirements. Historical
+      reviews and confirmations remain tied to their original document revision.
 verified:
   - by: anthropic/claude-fable-5-1
     at: "2026-09-24T14:25:00Z"
@@ -90,3 +113,11 @@ keeping every existing safety rule.
 Shell strings, hooks that run at arbitrary points, and service configuration derived from recipe
 or matrix bindings remain excluded, as ADR 6 and ADR 7 decide. Load generation is not part of this
 request.
+
+## Rei adoption amendment — 2026-10-11
+
+mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract supplies a second consumer: its disposable fixture starts the production API, a Mori stub, and an existing projection owner. The workbench interface still owns one service at `a29d26ad5e90aa762de88be18f06fddf67b6d02f`. Replacing that harness requires preserving both public command visibility and the order in which consumers stop before the database lease is released.
+
+Make lifecycle steps barriers around parallel HTTP batches. Intentional worker stops must suspend the relevant monitor rather than trigger the unexpected-exit path. Record every start, readiness, stop, restart, and cleanup outcome by logical service name. Stop successfully started services in reverse order after partial startup; retain the primary test/startup failure separately from cleanup errors, and report failure when cleanup alone fails. Teardown executes within a bounded cleanup phase even after interruption.
+
+Keep a caller-provided PostgreSQL lease outside workbench ownership. In the `mori://shinzui/hinagata` handoff, workbench stops API/stub/worker consumers before returning to lease release. Joint verification with `mori://shinzui/hurl-workbench/okf/improvement-requests/concepts/IR-5` and `mori://shinzui/hurl-workbench/okf/improvement-requests/concepts/IR-6` must preserve scenario isolation and the selected clean environment policy. Existing one-service manifests remain compatible. The added criteria describe required future evidence; this amendment does not claim implementation or passing tests.
