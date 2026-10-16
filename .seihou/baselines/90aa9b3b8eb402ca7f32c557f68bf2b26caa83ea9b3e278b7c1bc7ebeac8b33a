@@ -1,0 +1,59 @@
+# hurl-workbench
+
+> A Haskell-powered Hurl workbench for composing, exploring, executing, and testing reusable API workflows without duplicating request templates.
+
+## Layout
+
+This project is split into two cabal packages:
+
+- **`hurl-workbench-core`** — the reusable library. The starter
+  `HurlWorkbench.greet` function is called by the CLI, and the project-wide
+  `HurlWorkbench.Prelude` re-exports
+  [`lens`](https://hackage.haskell.org/package/lens) and
+  [`generic-lens`](https://hackage.haskell.org/package/generic-lens).
+- **`hurl-workbench-cli`** — the command-line interface. Exposes parser types,
+  `parserInfo`, and `HurlWorkbench.Cli.runCli`, and ships an executable named
+  **`hurl-workbench`**. Its Tasty suite checks the core behavior
+  and parses the starter command without mutating process arguments.
+
+Both packages use **GHC `ghc9124`** by default and expose **GHC 9.14.1** as a
+secondary shell. They use `default-language: GHC2024` and the same warning set + default extensions
+(`DeriveAnyClass`, `DuplicateRecordFields`, `OverloadedLabels`, `OverloadedStrings`).
+Each package contains its own `LICENSE` and `CHANGELOG.md`, so `cabal check` and source
+distributions do not depend on parent-directory paths.
+
+## Develop
+
+The project ships a Nix flake (`nix-haskell-flake`) that pins GHC and provides
+the dev shell. Enter the shell with:
+
+```bash
+nix develop                # GHC ghc9124 with HLS
+nix develop .#ghc9141      # current stable GHC compatibility shell
+```
+
+To add dev-shell tools or extra flake outputs, copy `flake.module.nix.example` to
+`flake.module.nix` and edit it. It is imported automatically and is never overwritten
+by template upgrades, so your customizations there survive `nix-haskell-flake` updates.
+
+Then build and run:
+
+```bash
+cabal build all
+cabal test all
+cabal run hurl-workbench -- hello --name world
+```
+
+The flake exposes both packages and chooses the CLI executable as the default package.
+It also runs the test suite as a flake check.
+
+```bash
+nix build                         # same as .#hurl-workbench-cli
+nix build .#hurl-workbench-core
+nix flake check
+nix fmt -- --ci .
+```
+
+## License
+
+[BSD-3-Clause](./LICENSE) — (c) 2026 Nadeem Bitar.

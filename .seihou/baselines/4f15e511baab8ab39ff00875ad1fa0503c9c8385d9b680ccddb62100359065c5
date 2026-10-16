@@ -1,0 +1,26 @@
+# Workspace package outputs for the two-package hurl-workbench CLI scaffold.
+# seihou-managed by haskell-cli-app; project-specific customizations still
+# belong in the unmanaged ../flake.module.nix imported by the base flake.
+{ inputs, ... }:
+{
+  perSystem = { pkgs, ... }:
+    let
+      haskellPackages = pkgs.haskell.packages."ghc9124".override {
+        overrides = hself: _hsuper: {
+          "hurl-workbench-core" =
+            hself.callCabal2nix "hurl-workbench-core" (inputs.self + "/hurl-workbench-core") { };
+          "hurl-workbench-cli" =
+            hself.callCabal2nix "hurl-workbench-cli" (inputs.self + "/hurl-workbench-cli") { };
+        };
+      };
+
+      corePackage = haskellPackages."hurl-workbench-core";
+      cliPackage = haskellPackages."hurl-workbench-cli";
+    in
+    {
+      packages."hurl-workbench-core" = corePackage;
+      packages."hurl-workbench-cli" = cliPackage;
+      packages.default = cliPackage;
+      checks."hurl-workbench-cli-test" = pkgs.haskell.lib.doCheck cliPackage;
+    };
+}
