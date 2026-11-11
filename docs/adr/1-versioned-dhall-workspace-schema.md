@@ -45,6 +45,11 @@ Compatibility rules for schema version 1:
   `hurl-workbench-core/test/fixtures/workspaces/` (a completion-based manifest and a fully
   specified one that must decode to the same value) must keep passing; do not rewrite them
   to hide a break.
+- Command environment policy defaults to Inherit. For fully specified old service and
+  readiness commands, the decoder inserts only the omitted policy after evaluation and
+  schema-version checking, including command types inside readiness unions and empty
+  service-list annotations. Explicit malformed policies still fail typed decoding.
+  Frozen old command fixtures complement the minimal compatibility pair.
 - The decoder evaluates the manifest, reads `schemaVersion` from the normalized record,
   and rejects unknown versions before the typed decode. There is no JSON or YAML fallback.
 

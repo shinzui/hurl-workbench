@@ -109,3 +109,69 @@ cabal run hurl-workbench -- \
 
 Use `--secrets-file` or `--secret-env NAME=ENVIRONMENT_NAME` when a generated value is secret. Do
 not place secret placeholders in readiness URLs; URLs accept declared plain parameters only.
+
+## Explicit clean command environments
+
+Service and readiness commands independently accept `environmentPolicy`. Omission and
+`Schema.EnvironmentPolicy.Inherit` preserve the ambient environment. Opt into isolation with:
+
+```dhall
+environmentPolicy = Schema.EnvironmentPolicy.Clean [ "PGHOST", "PGPORT", "PGUSER", "PGDATABASE" ]
+```
+
+`Clean ([] : List Text)` selects no inherited variables. Explicit `environment` parameter
+bindings are then added and override selected ambient values. Every selected inherited name
+must exist, even if a binding overrides it; an empty value counts as present. Invalid or duplicate
+names fail validation. Missing runtime names fail before either service or readiness starts,
+identify only the command phase and variable names, and give suite exit 4. External-service mode
+skips these unused managed-command policies.
+
+There are no implicit PATH, HOME, locale, or platform variables. Select each needed name
+explicitly. Resolve executable paths in the caller and use absolute paths for deterministic
+startup. A child language runtime can add its own variables after launch; the policy controls
+the environment passed to the executable. Command readiness uses its own policy and keeps the
+same captured environment across retries. HTTP readiness and Hurl's environment filtering remain
+separate contracts. Lifecycle hooks and executable checks are not currently implemented.
+
+The `clean` suite in `examples/integration-service/hurl-workbench.dhall` uses a selected PORT
+that an explicit workspace binding overrides. Its readiness command starts with an empty
+environment. Run it after building both executables:
+
+```bash
+export HURL_WORKBENCH_FIXTURE_EXECUTABLE="$(cabal list-bin hurl-workbench-fixture-server)"
+export HURL_WORKBENCH_CURL_EXECUTABLE="$(command -v curl)"
+PORT=1 cabal run hurl-workbench -- \
+  --workspace examples/integration-service/hurl-workbench.dhall test suite clean
+```
+
+## Caller-owned PostgreSQL leases
+
+`scripts/check-clean-environment-lease.sh` is an opt-in consumer driver. Run it inside an
+already active lease with PGHOST, PGPORT, PGUSER, and PGDATABASE set, and with workbench,
+Python, and psql available in the caller's PATH. Alternatively set
+HURL_WORKBENCH_EXECUTABLE to the absolute built executable. If authentication requires a
+password, supply a caller-owned protected PGPASSFILE; the driver explicitly selects its path
+and never puts password bytes in arguments or reports. Keep that file until lease cleanup ends.
+PGPASSWORD is not inherited by clean children.
+
+```bash
+export HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)"
+bash scripts/check-clean-environment-lease.sh
+```
+
+The service and readiness both query `current_database()` and `current_user` through psql and
+privately check the supplied lease identity. The driver tests success, readiness failure, and
+SIGINT cancellation, verifies consumer shutdown before returning, and prints three PASS lines.
+The caller must then release the lease and independently verify that release. The driver does
+not provision or release databases.
+
+Normal example checks also run `scripts/check-clean-environment-lease-simulation.sh` with
+a fake psql executable. This covers driver control flow and shutdown without allocating a
+database; it cannot establish real lease access or release.
+
+Real Hinagata acceptance remains pending: `mori registry search hinagata` currently fails
+because the registry's local PostgreSQL socket refuses connections. No supported provider
+wrapper invocation or observed provider release is claimed here. Once registry access is
+restored, discover the interface using `mori registry show shinzui/hinagata --full` and
+`mori registry docs shinzui/hinagata`, run the driver inside that supported lease scope, and
+record the exact invocation and release evidence in plan 8.

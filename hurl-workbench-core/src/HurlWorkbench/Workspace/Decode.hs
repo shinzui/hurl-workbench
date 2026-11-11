@@ -60,10 +60,10 @@ decodeWorkspaceFile path = do
             Just version
               | version /= supportedSchemaVersion ->
                   pure (Left (UnsupportedSchemaVersion path version supportedSchemaVersion))
-              | otherwise -> decodeTyped resolved normalized
+              | otherwise -> decodeTyped (normalizeCommandPolicies normalized)
 
-    decodeTyped resolved normalized = do
-      expected <- trySync (Dhall.expectWithSettings settings decoder resolved)
+    decodeTyped normalized = do
+      expected <- trySync (Dhall.expectWithSettings settings decoder normalized)
       pure $ case expected of
         Left exception -> Left (DhallFailure path (renderException exception))
         Right () -> case Dhall.toMonadic (Dhall.extract decoder normalized) of
@@ -103,3 +103,28 @@ stripAnsi text = case Text.breakOn "\ESC[" text of
         let afterIntroducer = Text.drop 2 rest
             (_, final) = Text.span (\c -> c >= ' ' && c <= '?') afterIntroducer
          in before <> stripAnsi (Text.drop 1 final)
+
+-- | Upgrade only the managed-service subtree, including the command types in
+-- readiness unions and empty-list annotations. User expressions are typechecked
+-- before this pass; explicit policy fields are never replaced.
+normalizeCommandPolicies :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
+normalizeCommandPolicies (Dhall.Core.RecordLit fields) =
+  Dhall.Core.RecordLit
+    ( Dhall.Map.fromList
+        [(key, if key == "services" then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
+    )
+  where
+    policyType = Dhall.Core.Union (Dhall.Map.fromList [("Inherit", Nothing), ("Clean", Just (Dhall.Core.App Dhall.Core.List Dhall.Core.Text))])
+    inherited = Dhall.Core.Field policyType (Dhall.Core.makeFieldSelection "Inherit")
+    upgrade expression =
+      let nested = runIdentity (Dhall.Core.subExpressions (Identity . upgrade) expression)
+          add value record =
+            if all (\key -> isJust (Dhall.Map.lookup key record)) ["executable", "arguments", "workingDirectory", "environment"]
+              && not (isJust (Dhall.Map.lookup "environmentPolicy" record))
+              then Dhall.Map.insert "environmentPolicy" (Dhall.Core.makeRecordField value) record
+              else record
+       in case nested of
+            Dhall.Core.RecordLit record -> Dhall.Core.RecordLit (add inherited record)
+            Dhall.Core.Record record -> Dhall.Core.Record (add policyType record)
+            other -> other
+normalizeCommandPolicies other = other

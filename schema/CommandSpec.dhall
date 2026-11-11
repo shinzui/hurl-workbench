@@ -3,15 +3,19 @@
 -}
 let EnvironmentBinding = ./EnvironmentBinding.dhall
 
+let EnvironmentPolicy = ./EnvironmentPolicy.dhall
+
 in  { Type =
         { executable : Text
         , arguments : List Text
         , workingDirectory : Optional Text
+        , environmentPolicy : EnvironmentPolicy
         , environment : List EnvironmentBinding.Type
         }
     , default =
       { arguments = [] : List Text
       , workingDirectory = None Text
+      , environmentPolicy = EnvironmentPolicy.Inherit
       , environment = [] : List EnvironmentBinding.Type
       }
     }

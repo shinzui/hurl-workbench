@@ -31,7 +31,20 @@ tests :: TestTree
 tests =
   testGroup
     "integration suites"
-    [ testCase "blocks unclassified runs before the managed service or Hurl starts" $
+    [ testCase "missing managed environment skips Hurl; external service bypasses policy" $ do
+        original <- failureWorkspace
+        let context = validatedContext original
+            services = map (\service -> service & #command . #environmentPolicy .~ Clean ["HURL_WORKBENCH_TEST_ABSENT_972638"]) (validatedWorkspace original ^. #services)
+        workspace <- validateWorkspace (context & #workspace . #services .~ services) >>= either (assertFailure . show) pure
+        requests <- newTVarIO []
+        let request = SuiteRequest (SuiteName "failure") emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty Nothing False)
+        result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
+        result ^. #selectedExitCode @?= ExitFailure 4
+        readTVarIO requests >>= (@?= [])
+        external <- runSuite (recordingRunner requests) trueCapabilities workspace (request & #suiteOptions . #manageService .~ False) >>= requireSuite
+        external ^. #selectedExitCode @?= ExitSuccess
+        length <$> readTVarIO requests >>= (@?= 1),
+      testCase "blocks unclassified runs before the managed service or Hurl starts" $
         withSystemTempDirectory "hurl-workbench-suite-gate" $ \directory -> do
           ByteString.writeFile (directory </> "secrets.env") "client_secret=suite-secret\n"
           workspace <- fullWorkspace

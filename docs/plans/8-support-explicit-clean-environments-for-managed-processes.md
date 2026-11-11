@@ -3,12 +3,19 @@ id: 8
 slug: support-explicit-clean-environments-for-managed-processes
 title: "Support explicit clean environments for managed processes"
 kind: exec-plan
+intention: intention_01m76ccvkkewgr1s6jdtbzmzna
 created_at: 2026-11-11T20:36:28Z
 provenance:
   created_by:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-11-11T20:36:28Z
+  revisions:
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-11T22:41:59Z
+      mode: "implement"
+      note: "Implement compatible command policies and process environment isolation"
 ---
 
 # Support explicit clean environments for managed processes
@@ -30,15 +37,21 @@ This implements [IR-6](../improvement-requests/support-explicit-clean-environmen
 ## Progress
 
 
-- [ ] Milestone 1: Old manifests decode unchanged; new clean policies decode and reject invalid or duplicate inherited names.
-- [ ] Milestone 2: Service and readiness children enforce the same policy, fail before startup on missing required names, and retain cleanup and redaction guarantees.
-- [ ] Milestone 3: Public examples, report tests, and a real PostgreSQL lease handoff demonstrate isolation on success, failure, and cancellation; release copies and documentation agree.
+- [x] (2026-11-11) Milestone 1: Old manifests decode unchanged; clean policies decode and reject invalid or duplicate names. Workspace tests and all four CLI compatibility fixtures pass; schema copies agree.
+- [x] (2026-11-11) Milestone 2: Service and readiness share one selector and parent snapshot, reject missing names before startup, and preserve cleanup and redaction. All 77 core and 33 CLI tests pass, including native exact-environment, mixed old/new decoding-to-exec, missing-name startup markers, clean cancellation/readiness cleanup, failure redaction, and external-service bypass.
+- [ ] Milestone 3: Public clean example, summary sentinel checks, consumer driver, documentation, and release copies are implemented. macOS examples and schema/release checks pass. Real Hinagata lease access and provider release evidence remain blocked by registry access; Linux validation is running in an Apple container.
 
-Planning handoff: implementation has not started. Intention creation was attempted with `mina ci --json 'Support explicit clean environments for managed processes'`, but Mina reported an unset `rei.create.default-parent`; the parent ID has been requested. Link the returned child intention in frontmatter once creation succeeds. Mori registry discovery also failed because its configured local PostgreSQL socket refused connections. Dependency-specific research and the real Hinagata acceptance run remain prerequisites for completing milestone 3, not evidence already obtained.
+Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdtbzmzna successfully; it is authoritative in frontmatter. Required local commands already passed: `nix develop -c cabal build all`, `nix develop -c cabal test all --test-show-details=direct` (77 core, 33 CLI), `nix develop -c just sync-check schema-check`, `nix develop -c just examples`, `nix fmt -- --ci`, `git diff --check`, and `nix develop -c bash scripts/check-sdist.sh` (unpacked source distributions build successfully). `scripts/check-clean-environment-lease-simulation.sh` exercised all three driver paths and consumer shutdown; it is explicitly simulation evidence, not AC-5. `bash scripts/check-clean-environment-lease.sh` with incomplete PG inputs exited 2 before launch. `just linux-check` is still building its development environment. Mori discovery still fails with the same refused local PostgreSQL socket (FRIC-1). No provider wrapper syntax or real lease release is inferred.
 
 
 ## Surprises & Discoveries
 
+
+2026-11-11: A Haskell child on macOS adds `__CF_USER_TEXT_ENCODING` after exec, so language-level environment inspection cannot establish the exact launch boundary. Native `test/fixtures/processes/environment.c` inspects envp and proves empty and explicit-only environments. The public Haskell fixture allows that known runtime addition while verifying that PORT is its only selected input.
+
+2026-11-11: Existing parallel tests mutate libc environ while unrelated process launches use it, intermittently producing `posix_spawnp: failed (Bad address)`. Core tests now run sequentially, and helper compilation uses an explicit environment snapshot; internal batch-concurrency tests still exercise their own workers. See FRIC-2.
+
+2026-11-11: Cancellation of the public driver sends SIGINT to the workbench session group, matching terminal interruption. The managed service is in its separate owned group and must be stopped by workbench cleanup before the driver returns. Simulated success, readiness failure, and cancellation all pass.
 
 
 ## Decision Log
@@ -55,6 +68,10 @@ Planning handoff: implementation has not started. Intention creation was attempt
 
 ## Outcomes & Retrospective
 
+
+The command policy feature and local adoption path are implemented. ADRs 1 and 6 record version-1 normalization and shared environment ownership. Common-command consumers were inspected again: only service startup and command readiness exist; no setup/teardown or executable-check phases were added.
+
+FRIC-1 remains logged because the real provider interface and release evidence cannot yet be obtained. FRIC-2 is resolved by serializing core test cases around existing global environment mutations. Milestone 3 and AC-5 remain open until a real Hinagata-owned lease run records the supported outer invocation and observed release after consumers stop.
 
 
 ## Context and Orientation

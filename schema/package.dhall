@@ -21,6 +21,7 @@
 , MatrixCase = ./MatrixCase.dhall
 , Matrix = ./Matrix.dhall
 , EnvironmentBinding = ./EnvironmentBinding.dhall
+, EnvironmentPolicy = ./EnvironmentPolicy.dhall
 , CommandSpec = ./CommandSpec.dhall
 , HttpReadiness = ./HttpReadiness.dhall
 , CommandReadiness = ./CommandReadiness.dhall

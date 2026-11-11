@@ -17,6 +17,7 @@ extra-doc-files:
 
 extra-source-files:
   schema/*.dhall
+  test/fixtures/processes/*.c
   test/fixtures/workspaces/**/*.dhall
   test/fixtures/workspaces/**/*.hurl
   test/fixtures/workspaces/**/*.txt
@@ -55,6 +56,7 @@ library
     HurlWorkbench.Run.Batch
     HurlWorkbench.Run.Prepare
     HurlWorkbench.Run.Selection
+    HurlWorkbench.Service.Environment
     HurlWorkbench.Service.Resolve
     HurlWorkbench.Service.Run
     HurlWorkbench.Suite.Resolve

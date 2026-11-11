@@ -20,7 +20,8 @@ in  Schema.Project::{
         }
       ]
     , okfBundles =
-      [ Schema.OkfBundle::{
+      [ Schema.OkfBundle::{ name = "friction-log", path = "docs/friction-log", okfVersion = "0.2", profile = Some "docs/friction-log/profile.dhall", description = Some "Friction met while implementing plans" }
+      , Schema.OkfBundle::{
         , name = "use-cases"
         , path = "docs/use-cases"
         , profile = Some "docs/use-cases/profile.dhall"

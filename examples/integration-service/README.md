@@ -46,3 +46,23 @@ cabal run hurl-workbench -- \
   --workspace examples/integration-service/hurl-workbench.dhall \
   test suite perimeter
 ```
+
+The `clean` suite opts into explicit environment selection. Build the workbench and fixture,
+then run:
+
+```bash
+export HURL_WORKBENCH_FIXTURE_EXECUTABLE="$(cabal list-bin hurl-workbench-fixture-server)"
+export HURL_WORKBENCH_CURL_EXECUTABLE="$(command -v curl)"
+PORT=1 cabal run hurl-workbench -- \
+  --workspace examples/integration-service/hurl-workbench.dhall test suite clean
+```
+
+The service selects PORT and overrides it through the `service_port` binding; the fixture
+asserts PORT is its only inherited variable. Readiness has its own empty clean policy. Neither
+command implicitly receives PATH or HOME. Use absolute executable paths; select any additional
+names explicitly. Missing selected names fail before service startup, even if overridden by a
+binding. Other suites retain default inheritance. Child output and Hurl artifacts can still
+contain data intentionally emitted by those programs.
+
+For a caller-owned database lease, explicitly select its PG variables and protected PGPASSFILE
+when needed; keep the password file until consumer cleanup and lease release finish.

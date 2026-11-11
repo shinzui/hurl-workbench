@@ -37,7 +37,12 @@ decodingTests :: TestTree
 decodingTests =
   testGroup
     "decoding"
-    [ testCase "completion-based and fully specified manifests decode identically" $ do
+    [ policyDecodingTests,
+      testCase "frozen old service and readiness records inherit" $
+        for_ ["old-command", "old-http"] $ \name -> do
+          ws <- decodeOrFail (fixture name)
+          map (view (#command . #environmentPolicy)) (ws ^. #services) @?= [Inherit],
+      testCase "completion-based and fully specified manifests decode identically" $ do
         completed <- decodeOrFail (fixture "minimal")
         explicit <- decodeOrFail (fixture "minimal-explicit")
         completed @?= explicit
@@ -246,3 +251,45 @@ literalTests =
         for_ [" a", "a ", "\ta", "a\x2028", "\x85"] $ \value ->
           mkHurlValueLiteral value @?= Left SurroundingWhitespace
     ]
+
+policyDecodingTests :: TestTree
+policyDecodingTests =
+  testGroup
+    "command policies"
+    [ testCase "default, explicit inheritance, and empty clean policies" $
+        withSystemTempDirectory "policy-decode" $ \dir -> do
+          for_ [("", Inherit), (", environmentPolicy = Schema.EnvironmentPolicy.Inherit", Inherit), (", environmentPolicy = Schema.EnvironmentPolicy.Clean ([] : List Text)", Clean [])] $ \(field, expected) -> do
+            writePolicyManifest dir field
+            ws <- decodeOrFail (dir </> manifestFileName)
+            map (view (#command . #environmentPolicy)) (ws ^. #services) @?= [expected],
+      testCase "malformed policy types fail decoding" $
+        withSystemTempDirectory "policy-malformed" $ \dir -> do
+          for_ ["42", "< Inherit | Clean : Text >.Clean \"PATH\""] $ \value -> do
+            writePolicyManifest dir (", environmentPolicy = " <> value)
+            decodeWorkspaceFile (dir </> manifestFileName) >>= \case
+              Left (DhallFailure _ _) -> pure ()
+              other -> assertFailure (show other),
+      testCase "invalid and duplicate inherited names reject deterministically in both commands" $
+        withSystemTempDirectory "policy-validation" $ \dir -> do
+          writePolicyManifest dir ", environmentPolicy = Schema.EnvironmentPolicy.Clean [ \"\", \"9BAD\", \"A=B\", \"A B\", \"PATH\", \"PATH\" ]"
+          loaded <- loadWorkspaceContext (ExplicitWorkspace (dir </> manifestFileName)) >>= either (assertFailure . show) pure
+          let extraNames = Clean ["A\NULB", "A\nB", "A\tB"]
+              withExtra = loaded & #workspace . #services %~ map (\service -> service & #command . #environmentPolicy .~ extraNames)
+          validateWorkspace withExtra >>= \case
+            Left issues -> assertBool "NUL and whitespace rejected" (length (toList issues) >= 3)
+            Right _ -> assertFailure "expected invalid control characters"
+          first <- validateWorkspace loaded
+          second <- validateWorkspace loaded
+          case (first, second) of
+            (Left issues, Left again) -> do
+              issues @?= again
+              length (toList issues) @?= 10
+              assertBool "readiness locations present" (any (Text.isInfixOf "/readiness/command/environmentPolicy" . view #location) (toList issues))
+            _ -> assertFailure "expected static policy errors"
+    ]
+
+writePolicyManifest :: FilePath -> Text -> IO ()
+writePolicyManifest dir policyField = do
+  schema <- canonicalizePath schemaPackage
+  Text.IO.writeFile (dir </> manifestFileName) $
+    "let Schema = " <> Text.pack schema <> " let command = Schema.CommandSpec::{ executable = \"/usr/bin/true\" " <> policyField <> " } in Schema.Workspace::{ schemaVersion = 1, services = [ Schema.Service::{ name = \"policy\", command = command, readiness = Schema.Readiness.Command Schema.CommandReadiness::{ command = command } } ] }"

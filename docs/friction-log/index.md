@@ -1,0 +1,12 @@
+---
+okf_version: "0.2"
+---
+
+# Files
+
+- [profile.dhall](profile.dhall)
+
+# Friction Entry
+
+- [Mori registry unavailable during dependency and lease discovery](1-mori-registry-unavailable-during-dependency-and-lease-discovery.md) - The registry requires an unavailable local PostgreSQL socket, preventing source and Hinagata discovery.
+- [Parallel tests race process-global environment mutation](2-parallel-tests-race-process-global-environment-mutation.md) - Existing binding tests mutate libc environ while unrelated tests spawn children, intermittently causing posix_spawnp Bad address.

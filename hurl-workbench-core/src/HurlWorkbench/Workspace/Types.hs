@@ -41,6 +41,7 @@ module HurlWorkbench.Workspace.Types
     MatrixCase (..),
     Matrix (..),
     EnvironmentBinding (..),
+    EnvironmentPolicy (..),
     CommandSpec (..),
     HttpReadiness (..),
     CommandReadiness (..),
@@ -259,12 +260,17 @@ data EnvironmentBinding = EnvironmentBinding
   deriving stock (Generic, Eq, Show)
   deriving anyclass (FromDhall)
 
--- | A process invocation as an executable plus argv. There is deliberately
---   no shell-string form.
+-- | Inherit the parent environment, or select required inherited names.
+data EnvironmentPolicy = Inherit | Clean [Text]
+  deriving stock (Generic, Eq, Show)
+  deriving anyclass (FromDhall)
+
+-- | A process invocation as executable plus argv, with an independent environment policy.
 data CommandSpec = CommandSpec
   { executable :: !Text,
     arguments :: ![Text],
     workingDirectory :: !(Maybe FilePath),
+    environmentPolicy :: !EnvironmentPolicy,
     environment :: ![EnvironmentBinding]
   }
   deriving stock (Generic, Eq, Show)

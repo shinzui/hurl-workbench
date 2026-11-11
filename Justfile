@@ -35,6 +35,8 @@ sync-check:
 schema-check: cabal-index
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/minimal/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/minimal-explicit/hurl-workbench.dhall validate
+    cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-command/hurl-workbench.dhall validate
+    cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-http/hurl-workbench.dhall validate
     echo "schema compatibility: PASS"
 
 performance: cabal-index
@@ -56,9 +58,12 @@ examples: cabal-index
     "$workbench" --workspace examples/vendor-odata/hurl-workbench.dhall test workflow raw-decoding-investigation --variable baseUrl=http://127.0.0.1:18080; \
     kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""; \
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite default --jobs 2 --report junit --report html --report json --report tap --report-dir "$work_dir/reports"; \
+    HURL_WORKBENCH_FIXTURE_EXECUTABLE="$fixture_server" HURL_WORKBENCH_CURL_EXECUTABLE="$(command -v curl)" PORT=1 REI_PG_CONNECTION_STRING=private-rei-sentinel REI_CONFIG=private-config-sentinel MORI_API_URL=private-mori-sentinel "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite clean --report-dir "$work_dir/clean-reports"; \
+    python3 scripts/check-clean-summary.py "$work_dir/clean-reports/clean/summary.json"; \
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite perimeter; \
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite writes --allow-mutating; \
     echo "examples: PASS"
+    bash scripts/check-clean-environment-lease-simulation.sh
 
 sdist: cabal-index
     bash scripts/check-sdist.sh

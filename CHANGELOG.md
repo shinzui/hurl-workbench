@@ -7,6 +7,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Explicit inherited or clean environment policies for managed service and readiness commands,
+  with required-name preflight, compatible old manifests, and a caller-owned lease check driver.
+
 ## [0.1.0.0] - Unreleased
 
 ### Added

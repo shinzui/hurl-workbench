@@ -48,3 +48,22 @@ restrict retention and sharing, and do not send real credentials to untrusted re
 The permission and process-group guarantees currently target macOS and Linux/POSIX. A non-POSIX
 port needs equally tested secure-file permissions and process-tree ownership before it can claim the
 same model.
+
+## Managed command environments
+
+Managed service and command-readiness environments default to inheritance for compatibility.
+Use `Schema.EnvironmentPolicy.Clean [ "NAME" ]` on each command to inherit only required,
+explicitly named variables, or `Clean ([] : List Text)` for none. Explicit workspace parameter
+bindings overlay the selection. Selected names must exist before startup, even when overridden;
+errors include names and phase, never values. No PATH, HOME, or locale variables are added.
+Use absolute executable paths, and select each command's dependencies independently.
+
+Resolved environment values are redacted from workbench diagnostics and suite summaries.
+Inherited child stdout and stderr, deliberately echoed values, and Hurl response/report
+artifacts remain sensitive output; this policy does not sanitize them. Hurl filtering is a
+separate boundary. A language runtime may alter its own environment after exec.
+
+For PostgreSQL lease consumers, explicitly select PGHOST, PGPORT, PGUSER, PGDATABASE, and
+PGPASSFILE when needed. The password file stays protected and owned by the caller until all
+managed consumers stop and the lease is released. Password contents must never enter argv,
+committed manifests, or report metadata. See [integration testing](guides/integration-testing.md).

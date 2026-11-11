@@ -69,6 +69,23 @@ in  Schema.Workspace::{
             Schema.Readiness.Http
               Schema.HttpReadiness::{ url = "http://127.0.0.1:{{service_port}}/health" }
         }
+      , Schema.Service::{
+        , name = "clean-fixture-api"
+        , command = Schema.CommandSpec::{
+          , executable = env:HURL_WORKBENCH_FIXTURE_EXECUTABLE as Text ? "hurl-workbench-fixture-server"
+          , arguments = [ "--assert-clean" ]
+          , environmentPolicy = Schema.EnvironmentPolicy.Clean [ "PORT" ]
+          , environment = [ Schema.EnvironmentBinding::{ variable = "PORT", parameter = "service_port" } ]
+          }
+        , readiness = Schema.Readiness.Command Schema.CommandReadiness::{
+          , command = Schema.CommandSpec::{
+            , executable = env:HURL_WORKBENCH_CURL_EXECUTABLE as Text ? "curl"
+            , arguments = [ "--fail", "--silent", "http://127.0.0.1:18080/health" ]
+            , environmentPolicy = Schema.EnvironmentPolicy.Clean ([] : List Text)
+            }
+          }
+        }
+
       ]
     , suites =
       [ Schema.Suite::{
@@ -92,5 +109,7 @@ in  Schema.Workspace::{
         , service = Some "fixture-api"
         , failFast = True
         }
+      , Schema.Suite::{ name = "clean", runs = [ Schema.RunReference.Recipe "health" ], service = Some "clean-fixture-api" }
+
       ]
     }

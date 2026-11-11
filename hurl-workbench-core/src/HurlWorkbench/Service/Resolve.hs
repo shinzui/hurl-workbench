@@ -30,6 +30,7 @@ data ResolvedCommand = ResolvedCommand
   { executable :: !FilePath,
     arguments :: ![String],
     workingDirectory :: !FilePath,
+    environmentPolicy :: !EnvironmentPolicy,
     environment :: ![(String, String)]
   }
   deriving stock (Generic, Eq)
@@ -63,6 +64,7 @@ data ServiceError
   | ServiceReadinessSecretPlaceholder !ParameterName
   | ServiceReadinessMalformedPlaceholder !Text
   | ServiceReadinessInvalidUrl !Text !Text
+  | ServiceEnvironmentMissing !ServiceName !Text ![Text]
   | ServiceSpawnFailed !FilePath !Text
   | ServiceProcessIdUnavailable !ServiceName
   | ServiceExitedBeforeReady !ServiceName !ExitCode
@@ -122,6 +124,7 @@ resolveCommand validated bindings command = do
       { executable = Text.unpack (command ^. #executable),
         arguments = map Text.unpack (command ^. #arguments),
         workingDirectory,
+        environmentPolicy = command ^. #environmentPolicy,
         environment
       }
   where
@@ -188,6 +191,7 @@ renderServiceError = \case
   ServiceReadinessSecretPlaceholder name -> "readiness URL must not contain secret parameter " <> quotedParameter name
   ServiceReadinessMalformedPlaceholder value -> "readiness URL contains a malformed placeholder near " <> quote value
   ServiceReadinessInvalidUrl url message -> "invalid readiness URL " <> quote url <> ": " <> message
+  ServiceEnvironmentMissing name phase names -> "service " <> quotedService name <> " " <> phase <> " requires missing environment variables: " <> Text.intercalate ", " names
   ServiceSpawnFailed executable message -> "service executable " <> quote (Text.pack executable) <> " could not be started: " <> message
   ServiceProcessIdUnavailable name -> "service " <> quotedService name <> " started without an observable process id"
   ServiceExitedBeforeReady name exitCode -> "service " <> quotedService name <> " exited before readiness with " <> Text.pack (show exitCode)

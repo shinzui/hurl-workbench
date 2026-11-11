@@ -26,8 +26,12 @@ leak it through ordinary HTTP diagnostics and infrastructure logs.
 
 
 Service commands and command readiness probes are an executable plus argv, never shell text. Their
-environment overlays explicit workspace bindings on the current environment, and resolved command
-values have a redacted `Show` instance. HTTP readiness supports only exact `{{parameter}}`
+environment policy defaults to Inherit, preserving explicit bindings over ambient values.
+Clean selects required inherited names and then overlays explicit bindings, without implicit
+PATH, HOME, or locale defaults. Both commands are prepared from one parent snapshot before
+service startup; absent selected names fail even if explicitly overridden. Readiness retries
+retain that prepared environment. The shared Service.Environment selector owns this contract
+for future common-command consumers. Resolved command values have a redacted `Show` instance. HTTP readiness supports only exact `{{parameter}}`
 substitution from declared plain suite-level bindings; unknown, missing, malformed, and secret
 placeholders are errors.
 

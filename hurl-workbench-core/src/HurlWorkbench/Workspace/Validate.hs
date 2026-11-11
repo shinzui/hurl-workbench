@@ -379,6 +379,7 @@ commandIssues root ws key loc spec = do
       pure [issue key (loc <> "/workingDirectory") problem | Left problem <- [result]]
   pure $
     [issue key (loc <> "/executable") "executable must not be empty" | Text.null (Text.strip (spec ^. #executable))]
+      <> policyProblems
       <> workingDirectoryProblems
       <> [ issue key (loc <> "/environment") ("environment variable " <> quote v <> " is bound more than once")
          | v <- duplicates (map (view #variable) (spec ^. #environment))
@@ -393,6 +394,11 @@ commandIssues root ws key loc spec = do
         | b <- spec ^. #environment
         ]
   where
+    policyProblems = case spec ^. #environmentPolicy of
+      Inherit -> []
+      Clean names ->
+        [issue key (loc <> "/environmentPolicy") ("invalid inherited environment variable name " <> quote n) | n <- names, not (isValidEnvironmentName n)]
+          <> [issue key (loc <> "/environmentPolicy") ("inherited environment variable " <> quote n <> " is selected more than once") | n <- duplicates names]
     parameterNames = Set.fromList (map (view #name) (ws ^. #parameters))
 
 --------------------------------------------------------------------------------
