@@ -24,7 +24,7 @@ def executable(name, override=None):
     value = override or shutil.which(name)
     if not value:
         raise SystemExit(f"required executable unavailable: {name}")
-    return str(pathlib.Path(value).resolve())
+    return os.path.abspath(value)
 
 
 # Resolve all executables in the owner environment, before launching clean commands.

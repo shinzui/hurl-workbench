@@ -8,11 +8,19 @@ import HurlWorkbench.Suite.RunTest qualified as SuiteRunTest
 import HurlWorkbench.Workflow.WorkflowTest qualified as WorkflowTest
 import HurlWorkbench.Workspace.NameSafetyTest qualified as NameSafetyTest
 import HurlWorkbench.Workspace.WorkspaceTest qualified as WorkspaceTest
+import System.Environment (getArgs)
 import Test.Tasty (defaultMain, localOption, testGroup)
 import Test.Tasty.Runners (NumThreads (..))
 
 main :: IO ()
-main =
+main = do
+  arguments <- getArgs
+  case arguments of
+    ["--clean-environment-scenario", binary, directory] -> ServiceRunTest.runIsolatedScenario binary directory
+    _ -> runTests
+
+runTests :: IO ()
+runTests =
   -- Existing environment-binding tests mutate process-global state. Serialize
   -- test cases so concurrent POSIX spawns cannot race libc environ updates.
   defaultMain $

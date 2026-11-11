@@ -1,4 +1,4 @@
-module HurlWorkbench.Service.RunTest (tests) where
+module HurlWorkbench.Service.RunTest (tests, runIsolatedScenario) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (cancel, withAsync)
@@ -19,12 +19,13 @@ import HurlWorkbench.Workspace.Error (renderWorkspaceError)
 import HurlWorkbench.Workspace.Types
 import HurlWorkbench.Workspace.Validate
 import System.Directory (canonicalizePath, doesFileExist, findExecutable, removeFile)
-import System.Environment (getEnvironment)
+import System.Environment (getEnvironment, getExecutablePath)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Signals (nullSignal, signalProcess)
 import System.Posix.Types (ProcessID)
-import System.Process.Typed (proc, readProcessStdout_, runProcess_, setEnv)
+import System.Process.Typed (proc, readProcessStdout_, runProcess, runProcess_, setEnv)
 import System.Timeout qualified as Timeout
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -271,7 +272,13 @@ environmentTests :: TestTree
 environmentTests =
   testGroup
     "environment policies"
-    [ testCase "old and clean manifests reach native children through validation and resolution" $
+    [ testCase "private parent selects empty values, overrides selected values, and excludes sentinels" $
+        withSystemTempDirectory "private-policy-parent" $ \directory -> do
+          binary <- nativeBinary directory
+          runner <- getExecutablePath
+          let privateEnvironment = [("SELECTED", ""), ("BOUND", "private-ambient-sentinel"), ("REI_PG_CONNECTION_STRING", "private-rei-sentinel"), ("REI_CONFIG", "private-config-sentinel"), ("MORI_API_URL", "private-mori-sentinel")]
+          runProcess (setEnv privateEnvironment (proc runner ["--clean-environment-scenario", binary, directory])) >>= (@?= ExitSuccess),
+      testCase "old and clean manifests reach native children through validation and resolution" $
         withSystemTempDirectory "policy-roundtrip" $ \directory -> do
           binary <- nativeBinary directory
           schema <- canonicalizePath "schema/package.dhall"
@@ -359,3 +366,11 @@ nativeBinary directory = do
 commandType :: String -> String
 commandType policy =
   "{ executable : Text, arguments : List Text, workingDirectory : Optional Text, environment : List { variable : Text, parameter : Text }" <> (if null policy then "" else ", environmentPolicy : < Inherit | Clean : List Text >") <> " }"
+
+-- | Invoked in a subprocess whose environment belongs exclusively to this test.
+runIsolatedScenario :: FilePath -> FilePath -> IO ()
+runIsolatedScenario binary directory = do
+  let serviceCommand = ResolvedCommand binary ["--environment-fixture", "service", directory </> "service", "[\"BOUND\",\"SELECTED\"]"] "." (Clean ["SELECTED", "BOUND"]) [("BOUND", "private-bound-sentinel")]
+      probe = ResolvedCommand binary ["--environment-fixture", "probe", directory </> "probe", "[\"SELECTED\"]"] "." (Clean ["SELECTED"]) []
+  result <- withService (directService serviceCommand (ResolvedCommandReadiness probe 10000 2)) (pure . serviceProcessId)
+  either (assertFailure . show) assertProcessStopped result

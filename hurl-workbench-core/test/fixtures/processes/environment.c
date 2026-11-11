@@ -19,6 +19,7 @@ int main(int argc, char **argv, char **envp) {
     if (!equals) return 3;
     names[i] = strndup(envp[i], (size_t)(equals - envp[i]));
     length += strlen(names[i]) + 3;
+    if (!strcmp(names[i], "SELECTED") && *(equals + 1)) return 4;
     if (!strcmp(names[i], "BOUND") && strcmp(equals + 1, "private-bound-sentinel")) return 4;
   }
   qsort(names, count, sizeof(char *), compare);
