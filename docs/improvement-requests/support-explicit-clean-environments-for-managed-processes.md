@@ -6,7 +6,7 @@ generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-11T16:18:19Z"
 requestId: IR-6
-status: proposed
+status: accepted
 origin: mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract
 acceptanceCriteria:
   - id: AC-1
@@ -59,3 +59,6 @@ Use the same policy for command readiness and, when implemented, lifecycle comma
 
 Required before workbench replaces Rei's scrubbed managed-process harness. An externally managed fixture can continue controlling its own environment during initial adoption. This is an explicit reproducibility feature; it does not infer which arbitrary environment variables a service needs.
 
+## Implementation plan
+
+[ExecPlan 8: Support explicit clean environments for managed processes](../plans/8-support-explicit-clean-environments-for-managed-processes.md) covers AC-1 through AC-5. The work is planned; implementation and acceptance verification have not started.
