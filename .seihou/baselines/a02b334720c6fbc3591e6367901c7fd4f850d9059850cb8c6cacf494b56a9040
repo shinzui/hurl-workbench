@@ -13,3 +13,4 @@ result-*
 CLAUDE.local.md
 .seihou/manifest.json.tmp
 .envrc.local
+.codex/
