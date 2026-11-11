@@ -166,8 +166,10 @@ The caller must then release the lease and independently verify that release. Th
 not provision or release databases.
 
 Normal example checks also run `scripts/check-clean-environment-lease-simulation.sh` with
-a fake psql executable. This covers driver control flow and shutdown without allocating a
-database; it cannot establish real lease access or release.
+a fake psql executable, both with and without a protected caller-owned PGPASSFILE. It
+checks service and readiness PID shutdown and preserves that file for the caller.
+This covers driver control flow and shutdown without allocating a database;
+it cannot establish real lease access or release.
 
 Real Hinagata acceptance remains pending: `mori registry search hinagata` currently fails
 because the registry's local PostgreSQL socket refuses connections. No supported provider

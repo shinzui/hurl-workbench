@@ -2,6 +2,12 @@
 
 ## 2026-11-11
 
+* **Update**: FRIC-3 accepted: All Linux gate components passed through the temporary shell and a stable-source Nix retry.
+
+
+* **Addition**: FRIC-3 records slowdown environment friction with mori://shinzui/hurl-workbench: Disposable Linux validation compiles a cold development toolchain
+
+
 * **Update**: FRIC-2 resolved: Serialize the test harness while preserving explicit batch concurrency tests.
 
 

@@ -13,7 +13,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 REQUIRED = ["PGHOST", "PGPORT", "PGUSER", "PGDATABASE"]
 if "PGPASSFILE" in os.environ:
     password_file = pathlib.Path(os.environ["PGPASSFILE"])
-    info = password_file.stat()
+    try:
+        info = password_file.stat()
+    except OSError:
+        raise SystemExit("PGPASSFILE must be a caller-owned protected file") from None
     if not password_file.is_file() or info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise SystemExit("PGPASSFILE must be a caller-owned protected file")
     os.environ["PGPASSFILE"] = str(password_file.resolve())
@@ -36,6 +39,8 @@ FIXTURE = r'''
 import http.server, os, pathlib, subprocess, sys, time
 mode, psql, directory, port = sys.argv[1:]
 directory = pathlib.Path(directory)
+if mode != "service":
+    (directory / "probe.pid").write_text(str(os.getpid()))
 assert not any(name in os.environ for name in ("REI_PG_CONNECTION_STRING", "REI_CONFIG", "MORI_API_URL"))
 result = subprocess.run([psql, "-X", "-w", "-A", "-t", "-c", "SELECT current_database(), current_user"], capture_output=True)
 assert result.returncode == 0, "lease query failed"
@@ -113,6 +118,8 @@ in Schema.Workspace::{{ schemaVersion = 1
                 assert code != 0, "cancellation was ignored"
             pid = int((run / "service.pid").read_text())
             assert stopped(pid), "lease consumer still alive before owner regains control"
+            probe_pid = int((run / "probe.pid").read_text())
+            assert stopped(probe_pid), "readiness consumer still alive before owner regains control"
             assert (run / "probe.ok").exists(), "readiness did not access the lease"
             for artifact in (run / "reports").rglob("summary.json"):
                 content = artifact.read_text()

@@ -31,7 +31,12 @@ Clean selects required inherited names and then overlays explicit bindings, with
 PATH, HOME, or locale defaults. Both commands are prepared from one parent snapshot before
 service startup; absent selected names fail even if explicitly overridden. Readiness retries
 retain that prepared environment. The shared Service.Environment selector owns this contract
-for future common-command consumers. Resolved command values have a redacted `Show` instance. HTTP readiness supports only exact `{{parameter}}`
+for future common-command consumers. Resolved command values have a redacted `Show` instance.
+The policy controls the environment passed to exec; a language runtime may subsequently add
+variables. A native helper checks launch environments because the Haskell runtime on
+macOS adds `__CF_USER_TEXT_ENCODING`.
+
+HTTP readiness supports only exact `{{parameter}}`
 substitution from declared plain suite-level bindings; unknown, missing, malformed, and secret
 placeholders are errors.
 

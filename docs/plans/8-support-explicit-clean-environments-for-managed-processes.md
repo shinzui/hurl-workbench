@@ -39,9 +39,9 @@ This implements [IR-6](../improvement-requests/support-explicit-clean-environmen
 
 - [x] (2026-11-11) Milestone 1: Old manifests decode unchanged; clean policies decode and reject invalid or duplicate names. Workspace tests and all four CLI compatibility fixtures pass; schema copies agree.
 - [x] (2026-11-11) Milestone 2: Service and readiness share one selector and parent snapshot, reject missing names before startup, and preserve cleanup and redaction. All 78 core and 33 CLI tests pass, including private-parent selected empty values and overrides, native exact-environment, mixed old/new decoding-to-exec, missing-name startup markers, clean cancellation/readiness cleanup, failure redaction, and external-service bypass.
-- [ ] Milestone 3: Public clean example, summary sentinel checks, consumer driver, documentation, and release copies are implemented. macOS examples and schema/release checks pass. Real Hinagata lease access and provider release evidence remain blocked by registry access; Linux validation is running in an Apple container.
+- [ ] Milestone 3: Public clean example, summary sentinel checks, consumer driver, documentation, and release copies are implemented. macOS examples and schema/release checks pass. Real Hinagata lease access and provider release evidence remain blocked by registry access; All Linux release-gate components pass in the Apple container, including source distributions and a separate successful Nix-check retry. Only real provider acceptance remains open.
 
-Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdtbzmzna successfully; it is authoritative in frontmatter. Required local commands already passed: `nix develop -c cabal build all`, `nix develop -c cabal test all --test-show-details=direct` (78 core, 33 CLI), `nix develop -c just sync-check schema-check`, `nix develop -c just examples`, `nix fmt -- --ci`, `git diff --check`, and `nix develop -c bash scripts/check-sdist.sh` (unpacked source distributions build successfully). `scripts/check-clean-environment-lease-simulation.sh` exercised all three driver paths and consumer shutdown; it is explicitly simulation evidence, not AC-5. `bash scripts/check-clean-environment-lease.sh` with incomplete PG inputs exited 2 before launch. `just linux-check` is still building its development environment. Mori discovery still fails with the same refused local PostgreSQL socket (FRIC-1). No provider wrapper syntax or real lease release is inferred.
+Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdtbzmzna successfully; it is authoritative in frontmatter. Required local commands already passed: `nix develop -c cabal build all`, `nix develop -c cabal test all --test-show-details=direct` (78 core, 33 CLI), `nix develop -c just sync-check schema-check`, `nix develop -c just examples`, `nix fmt -- --ci`, `git diff --check`, and `nix develop -c bash scripts/check-sdist.sh` (unpacked source distributions build successfully). `scripts/check-clean-environment-lease-simulation.sh` exercised all three driver paths and service and readiness PID shutdown, both with and without a caller-owned protected PGPASSFILE; it is explicitly simulation evidence, not AC-5. `bash scripts/check-clean-environment-lease.sh` with incomplete PG inputs exited 2 before launch. The default `just linux-check` shell spent over thirty minutes realizing HLS dependencies and was stopped after alternative validation completed. An equivalent temporary shell with HLS disabled passed Linux core/CLI tests (78/33), schema compatibility, examples, protected-password-file simulations, performance, formatting/release-copy checks, and source distributions. Its first Nix check encountered a source-hash change because an ADR was edited during evaluation; a separate `container exec --workdir /workspace 0d0c8d73-a773-4eda-8008-b3c9cdbf5d4c nix flake check` against the unchanged checkout exited zero with `all checks passed!`. These are passing component results, not a claim that the interrupted default `just linux-check` invocation exited zero. The disposable container has been stopped. Mori discovery still fails with the same refused local PostgreSQL socket (FRIC-1). No provider wrapper syntax or real lease release is inferred.
 
 
 ## Surprises & Discoveries
@@ -71,7 +71,7 @@ Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdt
 
 The command policy feature and local adoption path are implemented. ADRs 1 and 6 record version-1 normalization and shared environment ownership. Common-command consumers were inspected again: only service startup and command readiness exist; no setup/teardown or executable-check phases were added.
 
-FRIC-1 remains logged because the real provider interface and release evidence cannot yet be obtained. FRIC-2 is resolved by serializing core test cases around existing global environment mutations. Milestone 3 and AC-5 remain open until a real Hinagata-owned lease run records the supported outer invocation and observed release after consumers stop.
+FRIC-1 remains logged because the real provider interface and release evidence cannot yet be obtained. FRIC-2 is resolved by serializing core test cases around existing global environment mutations. FRIC-3 is accepted for this plan: the equivalent temporary HLS-free shell completed validation; permanent CI caching/toolchain changes are outside this feature. Milestone 3 and AC-5 remain open until a real Hinagata-owned lease run records the supported outer invocation and observed release after consumers stop.
 
 
 ## Context and Orientation
@@ -79,15 +79,15 @@ FRIC-1 remains logged because the real provider interface and release evidence c
 
 A workspace is a Dhall configuration file decoded into Haskell records and then validated before execution. A managed service is a child process owned for the duration of a suite. A readiness command is a repeatedly executed child whose successful exit permits the suite to run. The ambient environment means the name/value pairs inherited by workbench from its parent. An allowlist is the explicit set of names permitted to cross into a clean child environment. A lease is a caller-owned temporary database allocation that must remain alive until all consumers stop.
 
-`schema/CommandSpec.dhall` defines executable, arguments, workingDirectory, and environment. The last field holds bindings from workspace parameter names to child variable names, not literal secrets. `schema/package.dhall` exports these types. Both `hurl-workbench-core/schema/` and `hurl-workbench-cli/schema/` contain release copies.
+`schema/CommandSpec.dhall` defines executable, arguments, workingDirectory, environmentPolicy, and environment. The last field holds bindings from workspace parameter names to child variable names, not literal secrets. `schema/package.dhall` exports these types. Both `hurl-workbench-core/schema/` and `hurl-workbench-cli/schema/` contain release copies.
 
-`hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` defines `CommandSpec` and its generic Dhall decoder. `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` evaluates a manifest, checks schemaVersion, then checks and extracts the typed workspace. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates both service and readiness commands in `commandIssues`, including names, duplicate explicit targets, and working directories. Static validation must not read runtime environment values.
+`hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` defines `CommandSpec` and its generic Dhall decoder. `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` evaluates a manifest, checks schemaVersion, normalizes omitted legacy command policies in the service subtree, then checks and extracts the typed workspace. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates both service and readiness commands in `commandIssues`, including names, duplicate explicit targets, and working directories. Static validation must not read runtime environment values.
 
-`hurl-workbench-core/src/HurlWorkbench/Service/Resolve.hs` resolves declared parameter bindings into `ResolvedCommand.environment`, whose `Show` instance is redacted. `hurl-workbench-core/src/HurlWorkbench/Service/Run.hs` reads `getEnvironment` once in `withService`; `serviceProcessConfig` and `readinessProcessConfig` currently apply `overlayEnvironment`. Its `prepareReadiness` currently ignores the ambient argument. `hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` prepares the suite; `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` executes it and writes summaries without environment values. `hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs` has a separate Hurl-specific environment boundary.
+`hurl-workbench-core/src/HurlWorkbench/Service/Resolve.hs` resolves declared parameter bindings into `ResolvedCommand.environment`, whose `Show` instance is redacted. `hurl-workbench-core/src/HurlWorkbench/Service/Environment.hs` owns the pure policy selector. `hurl-workbench-core/src/HurlWorkbench/Service/Run.hs` reads `getEnvironment` once in `withService`, prepares final service and readiness environments before launch, and passes final pairs directly to process configuration. Prepared command readiness retains its selection across retries. `hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` prepares the suite; `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` executes it and writes summaries without environment values. `hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs` has a separate Hurl-specific environment boundary.
 
 Tests live in `hurl-workbench-core/test/HurlWorkbench/Workspace/WorkspaceTest.hs`, `hurl-workbench-core/test/HurlWorkbench/Service/RunTest.hs`, and `hurl-workbench-core/test/HurlWorkbench/Suite/RunTest.hs`; public command tests live in `hurl-workbench-cli/test/Main.hs`. Service tests already exercise Python fixtures, readiness deadlines, cancellation, and process termination. `Justfile` owns schema, release-copy, example, and distribution checks.
 
-Relevant decisions consulted are [ADR 1](../adr/1-versioned-dhall-workspace-schema.md), which requires version-1 defaults and compatibility fixtures; [ADR 2](../adr/2-validated-workspace-boundary.md), which requires static validation before execution; [ADR 4](../adr/4-secure-hurl-process-boundary.md), which preserves secret channels and Hurl filtering; [ADR 6](../adr/6-managed-service-process-group-lifecycle.md), which owns service groups and cleanup; [ADR 7](../adr/7-suite-preflight-safety-and-report-isolation.md), which requires preflight and redacted summaries; and [ADR 8](../adr/8-self-contained-multi-package-release-builds.md), which requires synchronized package resources. Update ADRs 1 and 6 when implementing the compatibility and policy decisions, preserving the other guarantees.
+Relevant decisions consulted are [ADR 1](../adr/1-versioned-dhall-workspace-schema.md), which requires version-1 defaults and compatibility fixtures; [ADR 2](../adr/2-validated-workspace-boundary.md), which requires static validation before execution; [ADR 4](../adr/4-secure-hurl-process-boundary.md), which preserves secret channels and Hurl filtering; [ADR 6](../adr/6-managed-service-process-group-lifecycle.md), which owns service groups and cleanup; [ADR 7](../adr/7-suite-preflight-safety-and-report-isolation.md), which requires preflight and redacted summaries; and [ADR 8](../adr/8-self-contained-multi-package-release-builds.md), which requires synchronized package resources. ADRs 1 and 6 now record the compatibility and policy decisions; the other guarantees are preserved.
 
 The originating consumer is `mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract`. PostgreSQL lease ownership remains with `mori://shinzui/hinagata`. Neither is a new Haskell runtime dependency. No parent MasterPlan is assigned to this plan.
 
@@ -173,7 +173,23 @@ On macOS, Linux acceptance is run outside the development shell:
 just linux-check
 ```
 
-Record actual commands and concise outcomes in Progress as milestones pass. Infrastructure failures are not passing results.
+The cold default Linux shell also realizes HLS, the editor language server. During implementation the same GHC 9.12.4 compiler and command-line tools were used in a temporary shell with HLS disabled, without changing repository configuration. The equivalent standalone invocation is:
+
+```bash
+container run --rm --cpus 4 --memory 8G \
+  --env NIX_CONFIG=$'experimental-features = nix-command flakes\naccept-flake-config = true' \
+  --volume "$PWD:/workspace" --workdir /workspace ghcr.io/nixos/nix:2.35.2 \
+  nix develop --impure --expr '
+    let f = builtins.getFlake (toString ./.);
+        pkgs = import f.inputs.nixpkgs { system = "aarch64-linux"; };
+    in f.inputs.haskell-nix-dev.lib.aarch64-linux.mkDevShell {
+      ghc = "ghc9124";
+      withHls = false;
+      extraNativeBuildInputs = with pkgs; [ zlib just pkg-config curl hurl python3 ripgrep ];
+    }' -c just check
+```
+
+The actual run reused the active validation container through `container exec --workdir /workspace` so downloaded packages were retained. This changes toolchain realization only; `just check` and its repository checks are unchanged. Record actual commands and concise outcomes in Progress as milestones pass. Infrastructure failures are not passing results.
 
 
 ## Validation and Acceptance
@@ -193,7 +209,7 @@ AC-5 requires a real Hinagata-owned lease, actual database access from clean ser
 
 All tests use disposable workspaces, unique report roots, and per-run marker paths. Restore parent environment changes with a bracket if unavoidable. Retry failed tests with fresh temporary roots after confirming fixture processes have stopped; never kill unrelated processes or reuse a real application database. Cancellation must complete service cleanup before the provider releases its lease. Preserve protected password files until their lease owner finishes cleanup.
 
-Compatibility normalization is in memory and never rewrites user manifests. Do not delete fixtures or change old expected behavior to obtain a green test. Keep dependency locks unchanged unless separately justified. Planning created this document only; retry intention creation once the requested parent is configured, and attach the returned ID without inventing one or creating duplicate intentions after a successful response.
+Compatibility normalization is in memory and never rewrites user manifests. Do not delete fixtures or change old expected behavior to obtain a green test. Keep dependency locks unchanged unless separately justified. Intention creation has succeeded; reuse the frontmatter ID for subsequent commits and do not create a duplicate intention.
 
 
 ## Interfaces and Dependencies
