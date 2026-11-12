@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-11T22:41:59Z
       mode: "implement"
       note: "Implement compatible command policies and process environment isolation"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-12T03:00:51Z
+      mode: "implement"
+      note: "Resume real Hinagata lease acceptance using the current Mori registry endpoint"
 ---
 
 # Support explicit clean environments for managed processes
@@ -39,9 +44,11 @@ This implements [IR-6](../improvement-requests/support-explicit-clean-environmen
 
 - [x] (2026-11-11) Milestone 1: Old manifests decode unchanged; clean policies decode and reject invalid or duplicate names. Workspace tests and all four CLI compatibility fixtures pass; schema copies agree.
 - [x] (2026-11-11) Milestone 2: Service and readiness share one selector and parent snapshot, reject missing names before startup, and preserve cleanup and redaction. All 78 core and 33 CLI tests pass, including private-parent selected empty values and overrides, native exact-environment, mixed old/new decoding-to-exec, missing-name startup markers, clean cancellation/readiness cleanup, failure redaction, and external-service bypass.
-- [ ] Milestone 3: Public clean example, summary sentinel checks, consumer driver, documentation, and release copies are implemented. macOS examples and schema/release checks pass. Real Hinagata lease access and provider release evidence remain blocked by registry access; All Linux release-gate components pass in the Apple container, including source distributions and a separate successful Nix-check retry. Only real provider acceptance remains open.
+- [x] (2026-11-12 UTC) Milestone 3: Public examples, sentinels, consumer driver, documentation, and release copies are implemented. Previously recorded macOS and Linux component checks pass. The real provider harness now passes three separate SCRAM-authenticated Hinagata leases, with child statuses 0/4/130, service and readiness PID shutdown before return, `LeaseReleased` reports, `Released` inspections, clone absence from `pg_database`, and owner password-file removal. AC-5 is satisfied.
 
-Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdtbzmzna successfully; it is authoritative in frontmatter. Required local commands already passed: `nix develop -c cabal build all`, `nix develop -c cabal test all --test-show-details=direct` (78 core, 33 CLI), `nix develop -c just sync-check schema-check`, `nix develop -c just examples`, `nix fmt -- --ci`, `git diff --check`, and `nix develop -c bash scripts/check-sdist.sh` (unpacked source distributions build successfully). `scripts/check-clean-environment-lease-simulation.sh` exercised all three driver paths and service and readiness PID shutdown, both with and without a caller-owned protected PGPASSFILE; it is explicitly simulation evidence, not AC-5. `bash scripts/check-clean-environment-lease.sh` with incomplete PG inputs exited 2 before launch. The default `just linux-check` shell spent over thirty minutes realizing HLS dependencies and was stopped after alternative validation completed. An equivalent temporary shell with HLS disabled passed Linux core/CLI tests (78/33), schema compatibility, examples, protected-password-file simulations, performance, formatting/release-copy checks, and source distributions. Its first Nix check encountered a source-hash change because an ADR was edited during evaluation; a separate `container exec --workdir /workspace 0d0c8d73-a773-4eda-8008-b3c9cdbf5d4c nix flake check` against the unchanged checkout exited zero with `all checks passed!`. These are passing component results, not a claim that the interrupted default `just linux-check` invocation exited zero. The disposable container has been stopped. Mori discovery still fails with the same refused local PostgreSQL socket (FRIC-1). No provider wrapper syntax or real lease release is inferred.
+Earlier validation (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdtbzmzna successfully; it is authoritative in frontmatter. Required local commands already passed: `nix develop -c cabal build all`, `nix develop -c cabal test all --test-show-details=direct` (78 core, 33 CLI), `nix develop -c just sync-check schema-check`, `nix develop -c just examples`, `nix fmt -- --ci`, `git diff --check`, and `nix develop -c bash scripts/check-sdist.sh` (unpacked source distributions build successfully). `scripts/check-clean-environment-lease-simulation.sh` exercised all three driver paths and service and readiness PID shutdown, both with and without a caller-owned protected PGPASSFILE; it is explicitly simulation evidence, not AC-5. `bash scripts/check-clean-environment-lease.sh` with incomplete PG inputs exited 2 before launch. The default `just linux-check` shell spent over thirty minutes realizing HLS dependencies and was stopped after alternative validation completed. An equivalent temporary shell with HLS disabled passed Linux core/CLI tests (78/33), schema compatibility, examples, protected-password-file simulations, performance, formatting/release-copy checks, and source distributions. Its first Nix check encountered a source-hash change because an ADR was edited during evaluation; a separate `container exec --workdir /workspace 0d0c8d73-a773-4eda-8008-b3c9cdbf5d4c nix flake check` against the unchanged checkout exited zero with `all checks passed!`. These are passing component results, not a claim that the interrupted default `just linux-check` invocation exited zero. The disposable container has been stopped. At that checkpoint, Mori discovery failed with a refused local PostgreSQL socket (FRIC-1), so no real-provider evidence was claimed.
+
+Completion (2026-11-12 UTC): The prior registry blocker was an inherited agent environment pointing at an old Sungkyung socket. A command-local override using the current endpoint in the user's shell profile made `mori registry list`, `search hinagata`, `show shinzui/hinagata --full`, `docs shinzui/hinagata`, and `path mori://shinzui/hinagata` succeed. FRIC-1 is resolved. The provider source and documented command contract were read before integration; no dependency bounds changed. The runnable command and release observations appear below. Existing component evidence remains applicable because runtime Haskell code and schemas have not changed in this completion session. The updated driver also passes its original simulation in both password-file modes, release-copy checks, formatting, and `git diff --check`; strict friction validation passes and no entries remain logged for this plan.
 
 
 ## Surprises & Discoveries
@@ -52,6 +59,9 @@ Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdt
 2026-11-11: Existing parallel tests mutate libc environ while unrelated process launches use it, intermittently producing `posix_spawnp: failed (Bad address)`. Core tests now run sequentially, and helper compilation uses an explicit environment snapshot; internal batch-concurrency tests still exercise their own workers. See FRIC-2.
 
 2026-11-11: Cancellation of the public driver sends SIGINT to the workbench session group, matching terminal interruption. The managed service is in its separate owned group and must be stopped by workbench cleanup before the driver returns. Simulated success, readiness failure, and cancellation all pass.
+
+2026-11-12 UTC: The registry PostgreSQL service was healthy. The agent had inherited a stale `MORI_PG_CONNECTION_STRING`, while the user's shell profile specified the working endpoint. Comparing configured endpoints and applying a command-local override restored source discovery without changing the database service. FRIC-1 is resolved.
+
 
 
 ## Decision Log
@@ -71,7 +81,9 @@ Implementation handoff (2026-11-11): Mina created intention_01m76ccvkkewgr1s6jdt
 
 The command policy feature and local adoption path are implemented. ADRs 1 and 6 record version-1 normalization and shared environment ownership. Common-command consumers were inspected again: only service startup and command readiness exist; no setup/teardown or executable-check phases were added.
 
-FRIC-1 remains logged because the real provider interface and release evidence cannot yet be obtained. FRIC-2 is resolved by serializing core test cases around existing global environment mutations. FRIC-3 is accepted for this plan: the equivalent temporary HLS-free shell completed validation; permanent CI caching/toolchain changes are outside this feature. Milestone 3 and AC-5 remain open until a real Hinagata-owned lease run records the supported outer invocation and observed release after consumers stop.
+All milestones and AC-1 through AC-5 are complete. The opt-in provider harness creates a private password-authenticated cluster and uses three distinct Hinagata leases, preserving the consumer driver's existing default behavior. It forwards expected workbench failure/cancellation statuses to Hinagata so cleanup is observed on successful and failed child outcomes. Database provisioning remains outside workbench runtime.
+
+FRIC-1 is resolved: an inherited stale connection string, rather than an unavailable current registry, caused the discovery failures. FRIC-2 is resolved by serializing core test cases around existing global environment mutations. FRIC-3 is accepted: the equivalent HLS-free shell completed Linux validation; permanent CI caching/toolchain changes remain outside this feature. ADRs 1 and 6 already retain the durable schema compatibility and environment ownership decisions; the completion work adds acceptance tooling without changing those boundaries.
 
 
 ## Context and Orientation
@@ -156,7 +168,7 @@ Expect all tests to pass, `release copies: PASS`, `schema compatibility: PASS`, 
 bash scripts/check-clean-environment-lease.sh
 ```
 
-The driver must refuse missing PG variables before starting children and print only `clean lease success: PASS`, `clean lease failure cleanup: PASS`, and `clean lease cancellation cleanup: PASS` after its checks succeed. Provider release evidence is recorded by the outer lease owner, not inferred from these three lines. Discover that outer invocation before claiming this check complete:
+The driver must refuse missing PG variables before starting children and print only `clean lease success: PASS`, `clean lease failure cleanup: PASS`, and `clean lease cancellation cleanup: PASS` after its checks succeed. Provider release evidence is recorded by the outer lease owner, not inferred from these three lines. The provider interface was discovered with:
 
 ```bash
 mori registry list
@@ -164,6 +176,29 @@ mori registry search hinagata
 mori registry show shinzui/hinagata --full
 mori registry docs shinzui/hinagata
 ```
+
+Real provider acceptance ran from the repository root after discovering `mori://shinzui/hinagata` and building its executable. The following command sequence reproduces the successful invocation (source-tree SQL resources are explicitly supplied):
+
+```bash
+hinagata_root="$(mori path mori://shinzui/hinagata)"
+(cd "$hinagata_root" && nix develop -c cabal build hinagata)
+export HINAGATA_EXECUTABLE="$(cd "$hinagata_root" && nix develop -c cabal list-bin hinagata)"
+export hinagata_postgres_datadir="$hinagata_root/hinagata-postgres"
+nix develop -c bash -c 'export HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)"; python3 scripts/check-clean-environment-provider.py'
+```
+
+The provider was at commit `a0c1059743e5957e66e4b8cee9e485ad89471937` of `mori://shinzui/hinagata`. Its supported outer command is `hinagata --config CONFIG db with --json -- PROGRAM ARGS...`. The harness uses a Python callback to invoke `bash scripts/check-clean-environment-lease.sh --mode MODE --propagate-status`, asserts the owner's password file remains present after consumer shutdown, and returns the actual workbench status. Each independent lease must then report `LeaseReleased`, inspect as `Released`, disappear from `pg_database`, and remove the password file. Observed output:
+
+```text
+clean lease success: PASS
+Hinagata success: consumers stopped; state Released; clone absent; password file removed: PASS (child exit 0)
+clean lease failure cleanup: PASS
+Hinagata failure: consumers stopped; state Released; clone absent; password file removed: PASS (child exit 4)
+clean lease cancellation cleanup: PASS
+Hinagata cancellation: consumers stopped; state Released; clone absent; password file removed: PASS (child exit 130)
+```
+
+Service and readiness are still the only common-command consumers. No lifecycle setup/teardown or executable-check extensions appeared, so AC-3's conditional additional phases do not apply.
 
 For new library API work, similarly search `dhall` and `typed-process`, then show/docs the qualified projects returned and read their sources. Never search the Nix store. No dependency version changes are planned; if one becomes necessary, verify the authoritative package registry and upstream release tags before selecting bounds.
 
@@ -223,4 +258,4 @@ environmentPolicy = Schema.EnvironmentPolicy.Clean [ "PGHOST", "PGPORT", "PGUSER
 
 Existing `environment : List EnvironmentBinding` remains the explicit-binding channel. ResolvedCommand carries the selected policy while keeping resolved values redacted. The shared environment selector takes policy, an ambient snapshot, and explicit bindings and returns either missing names or final pairs; its callers own contextual ServiceError rendering. New consumers must use that selector rather than reimplement overlays.
 
-Reuse existing Dhall, containers, typed-process, and POSIX process APIs, with source lookup before new API assumptions. Add no shell-string command form, automatic ambient defaults, Hurl-wide policy switch, database provisioning layer, or inferred application-variable list. The external provider contract is an active lease, explicitly passed PG names, optional protected password-file path, and caller-owned release after workbench returns. The real provider invocation is the one outstanding external interface discovery; its acceptance cannot be waived by completion of local unit tests.
+Reuse existing Dhall, containers, typed-process, and POSIX process APIs, with source lookup before new API assumptions. Add no shell-string command form, automatic ambient defaults, Hurl-wide policy switch, database provisioning layer, or inferred application-variable list. The external provider contract is an active lease, explicitly passed PG names, optional protected password-file path, and caller-owned release after workbench returns. The real provider invocation and observed release evidence are recorded in Concrete Steps; local unit tests alone do not establish this external contract.

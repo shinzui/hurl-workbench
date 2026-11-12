@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-12
+* **Update**: FRIC-1 resolved: Verified registry search/show/docs against the current local PostgreSQL endpoint; no database service change was necessary.
+
 ## 2026-11-11
 
 * **Update**: FRIC-3 accepted: All Linux gate components passed through the temporary shell and a stable-source Nix retry.

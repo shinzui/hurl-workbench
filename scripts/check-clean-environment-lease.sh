@@ -7,4 +7,4 @@ for name in PGHOST PGPORT PGUSER PGDATABASE; do
     exit 2
   fi
 done
-exec python3 "$(dirname "$0")/check-clean-environment-lease.py"
+exec python3 "$(dirname "$0")/check-clean-environment-lease.py" "$@"

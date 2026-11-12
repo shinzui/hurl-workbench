@@ -171,9 +171,39 @@ checks service and readiness PID shutdown and preserves that file for the caller
 This covers driver control flow and shutdown without allocating a database;
 it cannot establish real lease access or release.
 
-Real Hinagata acceptance remains pending: `mori registry search hinagata` currently fails
-because the registry's local PostgreSQL socket refuses connections. No supported provider
-wrapper invocation or observed provider release is claimed here. Once registry access is
-restored, discover the interface using `mori registry show shinzui/hinagata --full` and
-`mori registry docs shinzui/hinagata`, run the driver inside that supported lease scope, and
-record the exact invocation and release evidence in plan 8.
+The supported wrapper from `mori://shinzui/hinagata/docs/user-documentation` is:
+
+```bash
+hinagata --config CONFIG db with --json -- bash scripts/check-clean-environment-lease.sh
+```
+
+For a reproducible real-provider check, `scripts/check-clean-environment-provider.py` starts
+its own disposable PostgreSQL cluster with SCRAM password authentication. It runs three
+separate `db with` leases, forwarding the workbench status to the owner after checking consumer
+shutdown. Hinagata must return statuses 0, 4, and 130, report `LeaseReleased`, and expose
+`Released` through `inspect`. The check independently verifies that each clone is absent from
+`pg_database`, that the protected password file survives until the consumer returns, and that
+Hinagata removes it on release. Password bytes never enter command arguments or printed output.
+This opt-in check needs PostgreSQL tools, Hurl, a built workbench, and a built Hinagata executable.
+Discover and build the provider first:
+
+```bash
+hinagata_root="$(mori path mori://shinzui/hinagata)"
+(cd "$hinagata_root" && nix develop -c cabal build hinagata)
+export HINAGATA_EXECUTABLE="$(cd "$hinagata_root" && nix develop -c cabal list-bin hinagata)"
+# Source-tree builds need Hinagata's packaged SQL resources.
+export hinagata_postgres_datadir="$hinagata_root/hinagata-postgres"
+nix develop -c bash -c 'export HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)"; python3 scripts/check-clean-environment-provider.py'
+```
+
+The provider harness internally invokes `hinagata --config CONFIG db with --json --` with a
+Python callback that runs `bash scripts/check-clean-environment-lease.sh --mode MODE
+--propagate-status`. The ordinary driver still runs all three modes and exits zero after
+successful assertions; the optional flags select one mode and return its workbench status.
+
+On 2026-11-12 UTC, this check passed on macOS with the provider at
+`mori://shinzui/hinagata` commit `a0c1059743e5957e66e4b8cee9e485ad89471937`.
+All three leases passed database access, consumer shutdown, release, database absence, and
+password-file removal checks. Plan 8 records the acceptance evidence. Earlier registry failures
+came from a stale inherited `MORI_PG_CONNECTION_STRING`; using the current endpoint from the
+user's shell profile restored discovery without restarting PostgreSQL.

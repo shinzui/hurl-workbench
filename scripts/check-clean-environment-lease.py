@@ -1,4 +1,5 @@
 """Opt-in active PostgreSQL lease consumer; provisioning and release stay with caller."""
+import argparse
 import json
 import os
 import pathlib
@@ -11,6 +12,12 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REQUIRED = ["PGHOST", "PGPORT", "PGUSER", "PGDATABASE"]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--mode", choices=("success", "failure", "cancellation"))
+parser.add_argument("--propagate-status", action="store_true")
+options = parser.parse_args()
+if options.propagate_status and not options.mode:
+    parser.error("--propagate-status requires --mode")
 if "PGPASSFILE" in os.environ:
     password_file = pathlib.Path(os.environ["PGPASSFILE"])
     try:
@@ -83,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix="clean-environment-lease-") as temporary
     directory = pathlib.Path(temporary)
     fixture = directory / "fixture.py"
     fixture.write_text(FIXTURE)
-    for mode in ("success", "failure", "cancellation"):
+    for mode in ([options.mode] if options.mode else ("success", "failure", "cancellation")):
         run = directory / mode
         run.mkdir()
         with socket.socket() as sock:
@@ -134,3 +141,5 @@ in Schema.Workspace::{{ schemaVersion = 1
                 os.kill(int(pid_file.read_text()), signal.SIGKILL)
         label = "success" if mode == "success" else mode + " cleanup"
         print(f"clean lease {label}: PASS", flush=True)
+if options.propagate_status:
+    raise SystemExit(code if code >= 0 else 128 - code)
