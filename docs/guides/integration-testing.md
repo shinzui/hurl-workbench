@@ -1,8 +1,9 @@
 # Integration testing with managed suites
 
 
-A suite is a reviewed list of workflows, recipes, and matrices. `test suite` resolves every run,
-binding, safety classification, report path, and service input before it starts a process. This
+A suite is a reviewed sequence of workflows, recipes, matrices, executable checks, and named
+service lifecycle steps. `test suite` resolves every run, binding, safety classification, report
+path, check command, and service input before setup or execution starts. This
 makes suites suitable for unattended checks while keeping state-changing and perimeter scenarios
 deliberately separate.
 
@@ -51,12 +52,15 @@ workflow; separate workflows are independent Hurl sessions.
 ## Managed and external services
 
 
-By default, a suite with a service starts its executable and argv directly—never through a shell—
-overlays declared environment bindings, polls readiness, and runs Hurl only after readiness
-succeeds. Cleanup sends TERM to the service process group, escalates to KILL after the configured
-timeout, and reaps the leader on success, failure, or interruption.
+By default, a suite starts its declared services as executable/argv commands, overlays declared
+environment bindings, and waits for each service's readiness before starting the next. Setup runs
+before acquisition; teardown follows reverse acquisition-order cleanup. Cleanup sends TERM to
+service process groups, escalates to KILL after the configured timeout, and reaps leaders on
+success, failure, or interruption. Use `service = Some "api"` for one service or ordered
+`services = [ "stub", "api", "worker" ]` for several; declaring both is an error.
 
-Use an existing server by skipping lifecycle ownership:
+Use an existing server by skipping setup, managed service ownership, and teardown. A suite with
+explicit Stop/Start/Restart steps refuses this mode:
 
 ```bash
 cabal run hurl-workbench-fixture-server -- --port 18080
@@ -70,13 +74,14 @@ If a managed suite never becomes ready, run `list services` and check the execut
 workspace-relative working directory, bound environment names, readiness URL/status, and port
 availability. A connection refusal or wrong status is retried until the overall timeout; malformed
 URLs and missing readiness executables fail immediately. If the service exits while tests run, the
-workbench cancels active Hurl children and marks unfinished cases as prerequisite failures.
+workbench cancels active Hurl/check children and marks unfinished work as prerequisite failures.
 
 
 ## Reports
 
 
-Reports are opt-in and require `--report-dir`:
+Hurl report formats are opt-in and require `--report-dir`. A suite containing executable checks
+requires a report directory even when no Hurl report format is selected:
 
 ```bash
 cabal run hurl-workbench -- \
@@ -87,21 +92,28 @@ cabal run hurl-workbench -- \
 
 Each expanded run owns a directory such as
 `build/reports/default/read-echo/`. JUnit uses `junit.xml`, HTML uses `html/`, JSON uses `json/`,
-and TAP uses `report.tap`. `build/reports/default/summary.json` contains only logical names,
-statuses, isolation policy, logical scenarios, durations, and relative report paths. Existing suite report trees are rejected; add
-`--overwrite` to replace exactly that suite subtree.
+and TAP uses `report.tap`. `build/reports/default/summary.json` contains logical names, statuses,
+isolation policy, logical scenarios, durations, and relative artifact paths. Ordered `steps`
+include batches, lifecycle actions, and executable checks; `services` and `phases` record service
+and phase outcomes, with `primaryFailure` and separate `cleanupDiagnostics`. Check captures live
+under `checks/NAME/`; setup and teardown captures use `phases/PHASE/INDEX/`.
+Existing suite report trees are rejected; add `--overwrite` to replace exactly that suite subtree.
 
 Report metadata and summaries omit bindings, child environments, captured diagnostics, and
 response bodies. Hurl reports and client response artifacts can still contain data returned by the
 server, including echoed credentials, so store and retain the report root as sensitive output.
 
 
-## Generated variables
+## Built-in and caller-generated inputs
 
 
-Generated per-request inputs remain caller-prepared; suite setup and teardown are bounded lifecycle phases. When a request needs an external
-signature or other generated input, run the dedicated helper first and have it write a standard
-Hurl properties file:
+For fresh identifiers, timestamps, and random strings, declare a Generated parameter. Workbench
+supports UUID4, UUID7, TypeID, RFC3339 UTC timestamps, and bounded alphanumeric values. Each
+prepared Hurl execution resolves its own values once, shared across that execution's fragments
+and retries. See [fresh scenario identifiers](#fresh-scenario-identifiers) below.
+
+For an application signature or other domain-specific generated input, run the dedicated helper
+first and have it write a standard Hurl properties file:
 
 ```text
 signed_body={"example":true}
@@ -122,7 +134,8 @@ not place secret placeholders in readiness URLs; URLs accept declared plain para
 
 ## Explicit clean command environments
 
-Service and readiness commands independently accept `environmentPolicy`. Omission and
+Service, readiness, setup, teardown, and executable check commands independently accept
+`environmentPolicy`. Omission and
 `Schema.EnvironmentPolicy.Inherit` preserve the ambient environment. Opt into isolation with:
 
 ```dhall
@@ -132,16 +145,19 @@ environmentPolicy = Schema.EnvironmentPolicy.Clean [ "PGHOST", "PGPORT", "PGUSER
 `Clean ([] : List Text)` selects no inherited variables. Explicit `environment` parameter
 bindings are then added and override selected ambient values. Every selected inherited name
 must exist, even if a binding overrides it; an empty value counts as present. Invalid or duplicate
-names fail validation. Missing runtime names fail before either service or readiness starts,
-identify only the command phase and variable names, and give suite exit 4. External-service mode
-skips these unused managed-command policies.
+names fail validation. Missing runtime names fail before setup or any execution starts and
+identify only the command phase and variable names. Missing managed-command inputs give suite
+exit 4; missing check inputs fail execution preflight. External-service mode skips unused
+managed-command policies while still preparing executable checks.
 
 There are no implicit PATH, HOME, locale, or platform variables. Select each needed name
-explicitly. Resolve executable paths in the caller and use absolute paths for deterministic
-startup. A child language runtime can add its own variables after launch; the policy controls
+explicitly. For service, readiness, and setup/teardown commands, resolve executable paths in the
+caller and use absolute paths for deterministic startup. Check executables remain workspace-relative.
+A child language runtime can add its own variables after launch; the policy controls
 the environment passed to the executable. Command readiness uses its own policy and keeps the
 same captured environment across retries. HTTP readiness and Hurl's environment filtering remain
-separate contracts. Setup, teardown and named service lifecycle barriers use these same environment rules. Executable check steps remain separately planned.
+separate contracts. All command phases use one invocation environment snapshot, including
+restarted services and executable checks.
 
 The `clean` suite in `examples/integration-service/hurl-workbench.dhall` uses a selected PORT
 that an explicit workspace binding overrides. Its readiness command starts with an empty
@@ -340,6 +356,13 @@ to the newest cleanup position. All active leaders are monitored, including duri
 later startup. Unexpected death cancels active Hurl process groups and retains
 completed case outcomes.
 
+Setup and teardown use `CommandSpec` lists. `commandTimeoutSeconds` defaults to 60;
+the collective cleanup/teardown budget `cleanupTimeoutSeconds` defaults to 30.
+Commands have closed stdin and require status zero. Teardown must handle partial
+setup. `--fail-fast` skips later batches and barriers after an ordinary failure;
+keep-going can continue after ordinary Hurl failures, but lifecycle failure stops
+the sequence. Neither mutation nor lifecycle actions are automatically retried.
+
 The example submits one mutation and polls only GET observations. Use jobs=1
 for a shared mutating fixture. A separate read-only example proves jobs=2 barriers;
 a barrier does not establish scenario isolation. Explicit Clean policies apply to
@@ -362,11 +385,28 @@ is tracked as FRIC-7 and is not claimed as accepted by this proof.
 
 ## Fresh scenario identifiers
 
+Declare generated values alongside ordinary parameters:
+
+```dhall
+Schema.Parameter::{
+  name = "recipientId",
+  kind = Schema.ParameterKind.Generated (Schema.Generator.TypeId { prefix = "rcp" })
+}
+```
+
+Other generator constructors are `Uuid4`, `Uuid7`, `Rfc3339Now`, and
+`RandomAlphanumeric { length = 24 }`. Generated parameters cannot have committed
+defaults, recipe bindings, or matrix-case bindings. Validate, list, and render
+inspect declarations without reading the clock or entropy.
+
 The [generated parameters example](../../examples/generated-parameters/README.md)
 declares a TypeID recipient and proves equality across two Hurl fragments. Its
 read-only matrix and suite can run with `--jobs 2`; each execution owns its inputs.
-To reproduce a failure, supply `--variable recipientId=<previous-id>`. Use a Plain
-parameter and explicit runtime value when setup commands and several Hurl runs
+To reproduce a failure, supply `--variable recipientId=<previous-id>` or a variable
+file. A declared environment source takes precedence over generation and must
+exist unless an explicit override wins. These are Plain runtime channels;
+Generated inputs cannot use Secret channels. Use a Plain
+parameter and explicit runtime value when setup commands, checks, and several Hurl runs
 must share one identity. Generation occurs during preflight, so a case later
 skipped by fail-fast may already have consumed entropy; scheduling never regenerates it.
 
@@ -396,6 +436,14 @@ establish a fact Hurl cannot express. A check executes once at its declared plac
 in `runs`; all earlier Hurl work finishes first and later work waits for check
 cleanup. Name the executable in the workspace, use Plain argv parameters for
 fixture identities/endpoints, and bind credentials only through its environment.
+The check executable must be a workspace-relative executable file whose canonical
+target remains inside the workspace. Absolute paths and parent traversal are
+refused; a contained symlink is allowed. `{{parameter}}` substitutions in argv
+accept declared Plain parameters only, preserving each argument without shell
+splitting. Checks use suite-wide runtime/file/environment/default bindings;
+recipe and matrix bindings do not apply. Secret and Generated argv templates
+are invalid. All checks are prepared before setup or child startup.
+
 The check executes alone even when adjacent read-only Hurl batches use jobs=2.
 Checks are explicit suite steps; arbitrary pre/post hooks remain outside this API.
 
@@ -408,9 +456,56 @@ steps and check process group. The deliberately mismatching API mutation runs
 serially with explicit authorization. Package/schema/client gates keep their own
 existing owners.
 
+Inside the existing `Schema.Workspace::{ ... }` record, the relevant declarations
+have this shape (the named Plain parameters, Secret parameter, and recipes must
+also be declared):
+
+```dhall
+, checks =
+  [ Schema.Check::{
+    , name = "parity"
+    , command = Schema.CommandSpec::{
+      , executable = "parity.py"
+      , arguments = [ "{{cliFixture}}", "{{apiUrl}}", "{{cliFixtureId}}", "{{apiFixtureId}}" ]
+      , environmentPolicy = Schema.EnvironmentPolicy.Clean [ "PATH" ]
+      , environment = [ Schema.EnvironmentBinding::{ variable = "PARITY_TOKEN", parameter = "token" } ]
+      }
+    , expectedStatus = 0
+    , timeoutSeconds = Some 60
+    }
+  ]
+, suites =
+  [ Schema.Suite::{
+    , name = "parity"
+    , runs = [ Schema.RunReference.Recipe "before", Schema.RunReference.Check "parity", Schema.RunReference.Recipe "after" ]
+    }
+  ]
+```
+
+Run the complete local matching/mismatch proof after building:
+
+```bash
+cabal build all
+HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" \
+  python3 scripts/check-command-parity-local.py
+```
+
+The caller creates two separate fixture directories, starts the local application,
+runs matching read-only work at jobs=2 and the HTTP-only mutation serially, checks
+the named parity outcome and private artifacts, then stops the service and removes
+its fixtures. A check has no mutation classifier; the suite author owns its
+behavior. Use the supported application interface to establish semantic facts.
+
 Supply a fresh `--report-dir`. Check stdout/stderr are sensitive private files,
 while `summary.json` names the result and relative artifact paths. An expected
 nonzero status can pass. Keep-going continues after a mismatch or timeout only
 when cleanup succeeded; fail-fast skips subsequent Hurl and check steps. Service
 monitoring remains active during a check and service cleanup still precedes teardown
 on check failure or cancellation.
+
+Omitting a check timeout selects a finite 60-second deadline. Explicit values
+must be positive. Process-group cleanup has its own five-second TERM grace and
+five-second KILL/reap budget. Summaries distinguish expected status, mismatch,
+timeout, signal, cancellation, launch failure, and cleanup diagnostics. Ordinary
+Hurl/check failures select the first failure in declaration order; lifecycle
+failure retains exit 4 priority. Checks-only suites need no dummy Hurl run.
