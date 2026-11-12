@@ -1,4 +1,3 @@
-.envrc
 dist
 dist-*
 cabal-dev
@@ -20,3 +19,5 @@ CLAUDE.local.md
 !result-*
 /result
 /result-*
+
+__pycache__/
