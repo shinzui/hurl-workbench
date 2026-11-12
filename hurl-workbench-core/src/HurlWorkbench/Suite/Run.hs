@@ -90,9 +90,13 @@ runSuite = runSuiteWith validateRenderedWorkflow
 
 runSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlRunner -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError SuiteResult)
 runSuiteWith validateRendered runner capabilities validated request =
-  prepareSuiteWith validateRendered capabilities validated request >>= \case
-    Left err -> Left <$> finalizeSuitePreflight validated request err
-    Right prepared -> Right <$> executePreparedSuite runner prepared
+  preflightFileRoot validated request >>= \case
+    Left err -> pure (Left err)
+    Right root -> do
+      let selected = request & #fileRoot .~ Just root
+      prepareSuiteWith validateRendered capabilities validated selected >>= \case
+        Left err -> Left <$> finalizeSuitePreflight validated selected err
+        Right prepared -> Right <$> executePreparedSuite runner prepared
 
 -- | One ownership boundary covers setup, every acquisition and barrier, active
 -- batches, reverse service cleanup, and finally teardown. Observations survive
@@ -396,7 +400,7 @@ finalizeSuitePreflight workspace request original
       Right metadata -> case metadata ^. #summaryPath of
         Nothing -> pure original
         Just path ->
-          reserveSuiteSummary request metadata >>= \case
+          reserveSuiteSummary workspace request metadata >>= \case
             Left issue -> pure (append issue)
             Right () ->
               writeSummary path (preflightSummary metadata) <&> \case
@@ -405,6 +409,7 @@ finalizeSuitePreflight workspace request original
   where
     append issue = original & #issues %~ (<> (issue :| []))
     isReportFailure = \case
+      SuiteFileRootFailed _ -> True
       SuiteReportPathExists _ -> True
       SuiteReportPathIsSymbolicLink _ -> True
       SuiteReportPathIsNotDirectory _ -> True

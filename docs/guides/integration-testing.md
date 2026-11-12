@@ -369,3 +369,22 @@ To reproduce a failure, supply `--variable recipientId=<previous-id>`. Use a Pla
 parameter and explicit runtime value when setup commands and several Hurl runs
 must share one identity. Generation occurs during preflight, so a case later
 skipped by fail-fast may already have consumed entropy; scheduling never regenerates it.
+
+## Caller-generated file request bodies
+
+Generate body bytes in a private caller directory and pass `--file-root DIR` to any execution
+command. A committed fragment can contain `file,request.json;` and send the bytes unchanged,
+including UTF-8, CRLF, and the final newline. Two concurrent invocations can each supply their
+own directory containing `request.json`. Fragment sources still come from the workspace.
+
+Keep the directory alive and readable/searchable until execution finishes, then clean it up in
+the caller. Workbench does not remove, rewrite, or chmod these inputs on success, failure,
+pre-spawn failure, or interruption. Removal after preflight produces an ordinary runtime failure.
+Put all report, matrix response, and curl output trees outside explicit body roots; neither
+nested outputs nor output ancestors of the body root are accepted, including symlink aliases.
+
+For suite-wide parameter sources, declare a Plain parameter and set
+`fileRootParameter = Some "payloadRoot"` on the suite. Supply it with `--variable`, a variables
+file, its declared environment, or a default. Relative parameter values use the workspace root.
+CLI `--file-root` takes precedence and needs no shadowed parameter value. Inspection stays static.
+See [the runnable exact-byte example](../../examples/file-body/README.md).

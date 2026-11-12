@@ -428,6 +428,7 @@ validateSuites ws =
             <> [issue name (loc <> "/service") "independent-state suites cannot declare a shared managed service" | s ^. #isolation == IndependentState, not (null (suiteServices s))]
             <> [issue name (loc <> "/services") "service and nonempty services cannot both be supplied" | isJust (s ^. #service), not (null (s ^. #services))]
             <> [issue name (loc <> "/services") ("duplicate service " <> quote (unServiceName svc)) | svc <- duplicates (suiteServices s)]
+            <> [issue name (loc <> "/fileRootParameter") problem | Just parameter <- [s ^. #fileRootParameter], problem <- fileRootIssues parameter]
             <> positive name (loc <> "/commandTimeoutSeconds") (s ^. #commandTimeoutSeconds)
             <> positive name (loc <> "/cleanupTimeoutSeconds") (s ^. #cleanupTimeoutSeconds)
             <> [issue name (loc <> "/commandTimeoutSeconds") "timeout exceeds supported microsecond range" | s ^. #commandTimeoutSeconds > fromIntegral (maxBound @Int `div` 1000000)]
@@ -438,6 +439,11 @@ validateSuites ws =
                | svc <- suiteServices s,
                  svc `Set.notMember` services
                ]
+    fileRootIssues parameter =
+      ["invalid parameter name" | not (isValidParameterName (unParameterName parameter))]
+        <> case filter ((== parameter) . view #name) (ws ^. #parameters) of
+          [] -> ["unknown file-root parameter " <> quote (unParameterName parameter)]
+          definition : _ -> ["file-root parameter must be Plain" | definition ^. #kind /= Plain]
     transitions initial = go initial
       where
         go _ [] = []

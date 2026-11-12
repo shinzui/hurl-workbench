@@ -17,6 +17,7 @@ import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Artifact
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workspace.Context
@@ -45,7 +46,17 @@ tests :: TestTree
 tests =
   testGroup
     "run selection and preparation"
-    [ testCase "expands matrix cases in declaration order with case-over-recipe layers" $ do
+    [ testCase "explicit roots survive matrix preparation and artifact overlap is refused" $
+        withSystemTempDirectory "matrix-file-root" $ \directory -> do
+          root <- validateFileRoot directory (Just directory) >>= either (assertFailure . show) pure
+          prepared <- preparedMatrixAt (Just root)
+          for_ prepared $ \ready -> do
+            ready ^. #fileRoot @?= root
+            buildBatchCase TestMode CaptureRunOutput [] ready ^. #request . #fileRoot @?= root
+          prepareResponseArtifacts (directory </> "nested") True prepared >>= \case
+            Left _ -> pure ()
+            Right _ -> assertFailure "artifact preparation accepted input overlap",
+      testCase "expands matrix cases in declaration order with case-over-recipe layers" $ do
         workspace <- fullWorkspace
         case resolveSelection workspace (SelectMatrix (MatrixName "property-page-sizes")) of
           Left err -> assertFailure (Text.unpack (renderSelectionError err))
@@ -215,7 +226,10 @@ syntheticCases names = do
   maybe (assertFailure "synthetic case list must be non-empty") pure (nonEmpty (map makeCase names))
 
 preparedMatrix :: IO (NonEmpty PreparedRun)
-preparedMatrix =
+preparedMatrix = preparedMatrixAt Nothing
+
+preparedMatrixAt :: Maybe FileRoot -> IO (NonEmpty PreparedRun)
+preparedMatrixAt selected =
   withSystemTempDirectory "hurl-workbench-batch-bindings" $ \directory -> do
     let secretsPath = directory </> "secrets.env"
     ByteString.writeFile secretsPath "client_secret=fixture-secret\n"
@@ -225,7 +239,10 @@ preparedMatrix =
             { plainOverrides = Map.singleton (ParameterName "client_id") (literal "fixture-id"),
               secretFiles = [secretsPath]
             }
-    prepareSelection trueCapabilities workspace input defaultHurlOptions (SelectMatrix (MatrixName "property-page-sizes")) >>= \case
+    let prepare = case selected of
+          Nothing -> prepareSelectionWith (\_ _ -> pure (Right ()))
+          Just root -> prepareSelectionAtFileRootWith root (\_ _ -> pure (Right ()))
+    prepare trueCapabilities workspace input defaultHurlOptions (SelectMatrix (MatrixName "property-page-sizes")) >>= \case
       Left errors -> assertFailure (Text.unpack (Text.unlines (map renderPreparationError (toList errors))))
       Right prepared -> pure prepared
 

@@ -362,6 +362,7 @@ data IsolationPolicy = SharedState | IndependentState
 -- | A named collection of runs, optionally against a managed service.
 data Suite = Suite
   { name :: !SuiteName,
+    fileRootParameter :: !(Maybe ParameterName),
     runs :: ![RunReference],
     service :: !(Maybe ServiceName),
     services :: ![ServiceName],

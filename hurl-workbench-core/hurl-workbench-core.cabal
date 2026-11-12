@@ -55,6 +55,7 @@ library
     HurlWorkbench.Prelude
     HurlWorkbench.Run.Artifact
     HurlWorkbench.Run.Batch
+    HurlWorkbench.Run.FileRoot
     HurlWorkbench.Run.Prepare
     HurlWorkbench.Run.Selection
     HurlWorkbench.Service.Environment
@@ -109,6 +110,7 @@ test-suite hurl-workbench-core-test
     HurlWorkbench.Hurl.RunTest
     HurlWorkbench.Parameter.GenerateTest
     HurlWorkbench.Parameter.ParameterTest
+    HurlWorkbench.Run.FileRootTest
     HurlWorkbench.Run.SelectionTest
     HurlWorkbench.Service.RunTest
     HurlWorkbench.Suite.LifecycleTest

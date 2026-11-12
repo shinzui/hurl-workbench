@@ -15,6 +15,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare (PreparedRun)
 import System.Directory
   ( createDirectory,
@@ -39,7 +40,8 @@ import System.Posix.IO (OpenFileFlags (..), OpenMode (WriteOnly), defaultFileFla
 import System.Posix.Types (FileMode)
 
 data ArtifactError
-  = InvalidArtifactStem !FilePath
+  = ArtifactFileRootConflict !FileRootError
+  | InvalidArtifactStem !FilePath
   | DuplicateArtifactTarget !FilePath
   | ArtifactAlreadyExists !FilePath
   | ArtifactPathIsSymbolicLink !FilePath
@@ -59,13 +61,14 @@ prepareResponseArtifacts outputDirectory overwrite prepared =
   case traverse (responseArtifactPath outputDirectory) prepared of
     Left err -> pure (Left (err :| []))
     Right targets -> do
+      rootChecks <- traverse (\run -> checkFileRootOutputs (run ^. #fileRoot) [outputDirectory]) prepared
       existingIssues <- fmap concat (traverse existingIssue (NonEmpty.toList targets))
       let duplicateIssues =
             [ DuplicateArtifactTarget path
             | (path, count) <- Map.toAscList (Map.fromListWith (+) [(path, 1 :: Int) | path <- NonEmpty.toList targets]),
               count > 1
             ]
-          preflightIssues = duplicateIssues <> existingIssues
+          preflightIssues = [ArtifactFileRootConflict err | Left err <- toList rootChecks] <> duplicateIssues <> existingIssues
       case nonEmpty preflightIssues of
         Just issues -> pure (Left issues)
         Nothing -> do
@@ -140,6 +143,7 @@ secureDirectoryMode = secureFileMode `unionFileModes` ownerExecuteMode
 
 renderArtifactError :: ArtifactError -> Text
 renderArtifactError = \case
+  ArtifactFileRootConflict err -> renderFileRootError err
   InvalidArtifactStem stem -> "invalid generated artifact stem " <> quote stem
   DuplicateArtifactTarget path -> "more than one case resolves to artifact " <> quote path
   ArtifactAlreadyExists path -> "artifact already exists; use --overwrite to replace " <> quote path

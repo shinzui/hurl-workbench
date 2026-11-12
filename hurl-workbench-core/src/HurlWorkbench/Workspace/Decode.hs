@@ -155,7 +155,8 @@ normalizeSuiteLifecycle (Dhall.Core.RecordLit fields) =
         ]
     stepType = union [(key, Just Dhall.Core.Text) | key <- ["Stop", "Start", "Restart"]]
     defaults =
-      [ ("isolation", policyType, Dhall.Core.Field policyType (Dhall.Core.makeFieldSelection "SharedState")),
+      [ ("fileRootParameter", Dhall.Core.App Dhall.Core.Optional Dhall.Core.Text, Dhall.Core.App Dhall.Core.None Dhall.Core.Text),
+        ("isolation", policyType, Dhall.Core.Field policyType (Dhall.Core.makeFieldSelection "SharedState")),
         ("services", list Dhall.Core.Text, Dhall.Core.ListLit (Just (list Dhall.Core.Text)) mempty),
         ("setup", list commandType, Dhall.Core.ListLit (Just (list commandType)) mempty),
         ("teardown", list commandType, Dhall.Core.ListLit (Just (list commandType)) mempty),

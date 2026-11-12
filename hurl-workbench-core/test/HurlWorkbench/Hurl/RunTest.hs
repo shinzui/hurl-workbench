@@ -17,6 +17,7 @@ import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Generate
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Workflow.Render
 import HurlWorkbench.Workflow.Resolve
 import HurlWorkbench.Workspace.Context (WorkspaceContext (..))
@@ -57,16 +58,28 @@ capabilityTests =
 
 runnerTests :: [TestTree]
 runnerTests =
-  [ testCase "short-lived parallel children retain their real exit statuses" $
+  [ testCase "argv uses the explicit canonical body root independently of source root" $
+      withSystemTempDirectory "hurl-file-root-source" $ \directory ->
+        withSystemTempDirectory "hurl-file-root-body" $ \body -> do
+          executable <- writeFakeHurl directory
+          rendered <- renderedFixture directory
+          root <- validateFileRoot body (Just body) >>= either (assertFailure . show) pure
+          let logPath = directory </> "explicit"
+          withEnvironment [("FAKE_HURL_LOG", logPath), ("FAKE_EXIT_CODE", "0")] $
+            runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest root rendered) >>= either (assertFailure . show) (const (pure ()))
+          arguments <- Text.lines <$> Text.IO.readFile (logPath <> ".args")
+          assertBool "canonical body root reaches argv" (hasPair "--file-root" (Text.pack (fileRootPath root)) arguments),
+    testCase "short-lived parallel children retain their real exit statuses" $
       withSystemTempDirectory "hurl-fast-exit" $ \dir -> do
         let executable = dir </> "instant-hurl"
         writeFile executable "#!/bin/sh\nexit 7\n"
         permissions <- getPermissions executable
         setPermissions executable (setOwnerExecutable True permissions)
         rendered <- renderedFixture dir
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
         replicateConcurrently_ 4 $
           replicateM_ 12 $
-            runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest rendered) >>= \case
+            runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest root rendered) >>= \case
               Right result -> result ^. #exitCode @?= ExitFailure 7
               Left err -> assertFailure (Text.unpack (renderRunStartError err)),
     testCase "cancellation of a live captured Hurl process is bounded and reaps its group" $
@@ -77,8 +90,9 @@ runnerTests =
         permissions <- getPermissions executable
         setPermissions executable (setOwnerExecutable True permissions)
         rendered <- renderedFixture dir
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
         let waitStarted = doesFileExist marker >>= \ready -> unless ready (threadDelay 10000 >> waitStarted)
-        withAsync (runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest rendered)) $ \worker -> do
+        withAsync (runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest root rendered)) $ \worker -> do
           Timeout.timeout 3000000 waitStarted >>= maybe (assertFailure "Hurl did not start") pure
           Timeout.timeout 4000000 (cancel worker) >>= maybe (assertFailure "capture cleanup blocked on a live pipe") pure
           waitCatch worker >>= \case Left _ -> pure (); Right _ -> assertFailure "cancelled Hurl returned normally"
@@ -89,11 +103,12 @@ runnerTests =
       withSystemTempDirectory "hurl-workbench-run-test" $ \dir -> do
         executable <- writeFakeHurl dir
         rendered <- renderedFixture dir
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
         secret <- requireSecret "super-secret-fixture"
         generated <- generateValue defaultGeneratorEnvironment (TypeId (TypeIdOptions "rcp")) >>= either (assertFailure . Text.unpack) pure
         let runLog = dir </> "fake"
             request =
-              (baseRequest rendered)
+              (baseRequest root rendered)
                 { bindings =
                     ResolvedBindings
                       { variables = Map.fromList [(ParameterName "base_url", literal "http://127.0.0.1"), (ParameterName "recipientId", generated)],
@@ -134,6 +149,7 @@ runnerTests =
       withSystemTempDirectory "hurl-workbench-target-test" $ \dir -> do
         executable <- writeFakeHurl dir
         rendered <- renderedFixture dir
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
         let runLog = dir </> "fake"
             response = dir </> "response.txt"
             junit = dir </> "junit.xml"
@@ -142,7 +158,7 @@ runnerTests =
             tap = dir </> "report.tap"
             curl = dir </> "requests.sh"
             request =
-              (baseRequest rendered)
+              (baseRequest root rendered)
                 { outputPolicy = ResponseFile response,
                   reportTargets = [JUnitReport junit, HtmlReport html, JsonReport json, TapReport tap],
                   options = defaultHurlOptions {curlExportPath = Just curl}
@@ -171,8 +187,9 @@ runnerTests =
       withSystemTempDirectory "hurl-workbench-inherit-test" $ \dir -> do
         executable <- writeFakeHurl dir
         rendered <- renderedFixture dir
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
         let runLog = dir </> "fake"
-            request = (baseRequest rendered) {outputPolicy = InheritRunOutput}
+            request = (baseRequest root rendered) {outputPolicy = InheritRunOutput}
         withEnvironment [("FAKE_HURL_LOG", runLog), ("FAKE_EXIT_CODE", "7"), ("FAKE_QUIET", "1")] $
           runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) request
             >>= \case
@@ -183,7 +200,8 @@ runnerTests =
     testCase "represents a spawn failure separately from a child exit" $
       withSystemTempDirectory "hurl-workbench-spawn-test" $ \dir -> do
         rendered <- renderedFixture dir
-        runHurl (mkHurlRunner (capabilities (dir </> "missing-hurl") (makeVersion [8, 0, 1]))) (baseRequest rendered)
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
+        runHurl (mkHurlRunner (capabilities (dir </> "missing-hurl") (makeVersion [8, 0, 1]))) (baseRequest root rendered)
           >>= \case
             Left HurlSpawnFailed {} -> pure ()
             other -> assertFailure ("expected HurlSpawnFailed, got " <> show other),
@@ -192,7 +210,8 @@ runnerTests =
         mkAllowedHurlArgument "--secret=value" @?= Left (UnsupportedHurlArgument "--secret=value")
         mkAllowedHurlArgument "--test" @?= Left (UnsupportedHurlArgument "--test")
         rendered <- renderedFixture dir
-        let request = (baseRequest rendered) {reportTargets = [JUnitReport "one.xml", JUnitReport "two.xml"]}
+        root <- validateFileRoot dir Nothing >>= either (assertFailure . show) pure
+        let request = (baseRequest root rendered) {reportTargets = [JUnitReport "one.xml", JUnitReport "two.xml"]}
         runHurl (mkHurlRunner (capabilities (dir </> "must-not-start") (makeVersion [8, 0, 1]))) request
           >>= \case
             Left (InvalidRunOptions issues) ->
@@ -200,10 +219,11 @@ runnerTests =
             other -> assertFailure ("expected option rejection, got " <> show other)
   ]
 
-baseRequest :: RenderedWorkflow -> RunRequest
-baseRequest rendered =
+baseRequest :: FileRoot -> RenderedWorkflow -> RunRequest
+baseRequest root rendered =
   RunRequest
     { renderedWorkflow = rendered,
+      fileRoot = root,
       mode = ClientMode,
       bindings = ResolvedBindings Map.empty Map.empty,
       options = defaultHurlOptions,

@@ -10,6 +10,7 @@ okf_version: "0.2"
 
 - [Mori registry unavailable during dependency and lease discovery](1-mori-registry-unavailable-during-dependency-and-lease-discovery.md) - The registry requires an unavailable local PostgreSQL socket, preventing source and Hinagata discovery.
 - [Lifecycle fixture publishes readiness before logging readiness](10-lifecycle-fixture-publishes-readiness-before-logging-readiness.md) - The existing suite fixture allows Hurl and cancellation to race its readiness event, making release checks fail intermittently.
+- [Mori registry unavailable during file-root implementation](11-mori-registry-unavailable-during-file-root-implementation.md) - The local registry PostgreSQL socket refused connections, preventing dependency source discovery.
 - [Parallel tests race process-global environment mutation](2-parallel-tests-race-process-global-environment-mutation.md) - Existing binding tests mutate libc environ while unrelated tests spawn children, intermittently causing posix_spawnp Bad address.
 - [Disposable Linux validation compiles a cold development toolchain](3-disposable-linux-validation-compiles-a-cold-development-toolchain.md) - The Apple-container release gate has no persistent Nix store, making its first development-shell realization compile many dependencies before project validation.
 - [Mori registry unavailable through PostgreSQL tunnel](4-mori-registry-unavailable-through-postgresql-tunnel.md) - Registry discovery and provider source lookup cannot proceed while the Sungkyung PostgreSQL tunnel refuses connections.

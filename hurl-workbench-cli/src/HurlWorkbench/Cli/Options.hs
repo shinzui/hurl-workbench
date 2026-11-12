@@ -161,6 +161,7 @@ data CliHurlOptions = CliHurlOptions
     includeHeaders :: !Bool,
     jsonOutput :: !Bool,
     verbosity :: !(Maybe HurlVerbosity),
+    fileRoot :: !(Maybe FilePath),
     curlExportPath :: !(Maybe FilePath),
     additionalArguments :: ![Text]
   }
@@ -177,6 +178,7 @@ defaultCliHurlOptions =
       includeHeaders = False,
       jsonOutput = False,
       verbosity = Nothing,
+      fileRoot = Nothing,
       curlExportPath = Nothing,
       additionalArguments = []
     }
@@ -418,6 +420,7 @@ matrixOptionsParser =
     <*> bindingOptionsParser
     <*> httpRetryOptionsParser
     <*> matrixOutputOptionsParser
+    <*> fileRootParser
     <*> advancedArgumentsParser
   where
     assemble
@@ -426,6 +429,7 @@ matrixOptionsParser =
       bindings
       http
       (MatrixOutputOptions outputDirectory overwrite diagnostics)
+      root
       additionalArguments =
         MatrixOptions
           { matrix,
@@ -436,7 +440,7 @@ matrixOptionsParser =
             outputDirectory,
             overwrite,
             bindings,
-            hurl = assembleCliHurlOptions http diagnostics additionalArguments
+            hurl = assembleCliHurlOptions http diagnostics root additionalArguments
           }
 
 suiteCommandOptionsParser :: Parser SuiteCommandOptions
@@ -452,6 +456,7 @@ suiteCommandOptionsParser =
     <*> bindingOptionsParser
     <*> httpRetryOptionsParser
     <*> outputDiagnosticOptionsParser
+    <*> fileRootParser
     <*> advancedArgumentsParser
   where
     assemble
@@ -463,6 +468,7 @@ suiteCommandOptionsParser =
       bindings
       http
       diagnostics
+      root
       additionalArguments =
         SuiteCommandOptions
           { suite,
@@ -475,7 +481,7 @@ suiteCommandOptionsParser =
             reportDirectory,
             overwrite,
             bindings,
-            hurl = assembleCliHurlOptions http diagnostics additionalArguments
+            hurl = assembleCliHurlOptions http diagnostics root additionalArguments
           }
 
 suiteControlOptionsParser :: Parser SuiteControlOptions
@@ -567,12 +573,13 @@ bindingOptionsParser =
         )
 
 cliHurlOptionsParser :: Parser CliHurlOptions
-cliHurlOptionsParser = assembleCliHurlOptions <$> httpRetryOptionsParser <*> outputDiagnosticOptionsParser <*> advancedArgumentsParser
+cliHurlOptionsParser = assembleCliHurlOptions <$> httpRetryOptionsParser <*> outputDiagnosticOptionsParser <*> fileRootParser <*> advancedArgumentsParser
 
-assembleCliHurlOptions :: HttpRetryOptions -> OutputDiagnosticOptions -> [Text] -> CliHurlOptions
+assembleCliHurlOptions :: HttpRetryOptions -> OutputDiagnosticOptions -> Maybe FilePath -> [Text] -> CliHurlOptions
 assembleCliHurlOptions
   (HttpRetryOptions connectTimeout maxTime retries retryInterval insecure)
   (OutputDiagnosticOptions include json verbosity curl)
+  root
   additional =
     CliHurlOptions
       { connectTimeoutSeconds = connectTimeout,
@@ -583,6 +590,7 @@ assembleCliHurlOptions
         includeHeaders = include,
         jsonOutput = json,
         verbosity,
+        fileRoot = root,
         curlExportPath = curl,
         additionalArguments = additional
       }
@@ -669,3 +677,6 @@ listCategoryParser =
         <> completeWith (map (Text.unpack . listCategoryName) allListCategories)
         <> help "One of all, parameters, fragments, workflows, recipes, matrices, services, suites (default: all)"
     )
+
+fileRootParser :: Parser (Maybe FilePath)
+fileRootParser = parserOptionGroup "Request body files" $ optional (strOption (long "file-root" <> metavar "DIR" <> help "Read file request bodies from a caller-owned directory (relative to invocation)"))

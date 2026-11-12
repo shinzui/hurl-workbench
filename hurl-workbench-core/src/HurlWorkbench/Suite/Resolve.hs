@@ -14,6 +14,7 @@ module HurlWorkbench.Suite.Resolve
     reserveSuiteSummary,
     suitePreflightReasonCode,
     suitePreflightSetupFailure,
+    preflightFileRoot,
     preflightScenarioInputs,
     prepareSuite,
     prepareSuiteWith,
@@ -35,6 +36,7 @@ import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Service.Resolve
@@ -86,6 +88,7 @@ data SuiteOptions = SuiteOptions
 
 data SuiteRequest = SuiteRequest
   { suiteName :: !SuiteName,
+    fileRoot :: !(Maybe FileRoot),
     scenarioInputs :: !(Maybe ScenarioInputs),
     bindingInput :: !BindingInput,
     hurlOptions :: !HurlOptions,
@@ -94,7 +97,8 @@ data SuiteRequest = SuiteRequest
   deriving stock (Generic, Eq, Show)
 
 data SuitePreflightIssue
-  = SuiteNotFound !SuiteName
+  = SuiteFileRootFailed !FileRootError
+  | SuiteNotFound !SuiteName
   | SuiteRunPreparationFailed !PreparationError
   | SuiteDependencyUnavailable
   | SuiteScenarioFailed !ScenarioIssue
@@ -173,23 +177,29 @@ suiteMetadata workspace request = do
       TapReport path -> path
 
 -- | A refusal reserves only the suite directory, never fictitious Hurl reports.
-reserveSuiteSummary :: SuiteRequest -> SuiteMetadata -> IO (Either SuitePreflightIssue ())
-reserveSuiteSummary request metadata = case request ^. #suiteOptions . #reportDirectory of
-  Nothing -> pure (Right ())
-  Just root -> prepareReportLayout root (root </> Text.unpack (unSuiteName (metadata ^. #name))) [] (request ^. #suiteOptions . #overwriteReports)
+reserveSuiteSummary :: ValidatedWorkspace -> SuiteRequest -> SuiteMetadata -> IO (Either SuitePreflightIssue ())
+reserveSuiteSummary workspace request metadata =
+  preflightFileRoot workspace request >>= \case
+    Left err -> pure (Left (NonEmpty.head (err ^. #issues)))
+    Right _ -> case request ^. #suiteOptions . #reportDirectory of
+      Nothing -> pure (Right ())
+      Just root -> prepareReportLayout root (root </> Text.unpack (unSuiteName (metadata ^. #name))) [] (request ^. #suiteOptions . #overwriteReports)
 
 prepareSuite :: HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
 prepareSuite = prepareSuiteWith validateRenderedWorkflow
 
 prepareSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
-prepareSuiteWith validateRendered capabilities validated request = do
-  preflight <- preflightScenarioInputs validated request
-  case preflight of
+prepareSuiteWith validateRendered capabilities validated request =
+  preflightFileRoot validated request >>= \case
     Left err -> pure (Left err)
-    Right verified -> prepareVerifiedSuiteWith verified validateRendered capabilities validated request
+    Right root -> do
+      preflight <- preflightScenarioInputs validated request
+      case preflight of
+        Left err -> pure (Left err)
+        Right verified -> prepareVerifiedSuiteWith root verified validateRendered capabilities validated request
 
-prepareVerifiedSuiteWith :: Maybe VerifiedScenarioInputs -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
-prepareVerifiedSuiteWith verified validateRendered capabilities validated request =
+prepareVerifiedSuiteWith :: FileRoot -> Maybe VerifiedScenarioInputs -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
+prepareVerifiedSuiteWith root verified validateRendered capabilities validated request =
   case lookupSuite (request ^. #suiteName) validated of
     Nothing -> pure (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| [])))
     Just _
@@ -205,7 +215,7 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
             Nothing -> error "validated suite has no runs"
             Just runs -> case traverse (\run -> (run,) <$> scenarioBindingInput inputs run) runs of
               Nothing -> error "verified scenario assignment incomplete"
-              Just assigned -> pure <$> prepareExpandedForSuiteWith validateRendered capabilities validated (request ^. #hurlOptions) assigned
+              Just assigned -> pure <$> prepareExpandedForSuiteAtFileRootWith root validateRendered capabilities validated (request ^. #hurlOptions) assigned
       serviceResult <- prepareManagedServices ambient suite
       let preparationIssues =
             concat
@@ -261,7 +271,8 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
     preparationIssue err = SuiteRunPreparationFailed err
 
     prepareReference reference =
-      prepareSelectionForSuiteWith
+      prepareSelectionForSuiteAtFileRootWith
+        root
         validateRendered
         capabilities
         validated
@@ -319,6 +330,15 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
             summary = suiteRoot </> "summary.json"
         prepared <- prepareReportLayout reportRoot suiteRoot (runRoots <> [suiteRoot </> "phases" </> phase </> show ordinal | (phase, commands) <- [("setup", suite ^. #setup), ("teardown", suite ^. #teardown)], ordinal <- [0 .. length commands - 1]]) (request ^. #suiteOptions . #overwriteReports)
         pure ((,Just summary) batchCases <$ prepared)
+
+-- | Select once before rendering, dependency probes, services, and reports.
+preflightFileRoot :: ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError FileRoot)
+preflightFileRoot workspace request =
+  selectSuiteFileRoot workspace (request ^. #suiteName) (request ^. #bindingInput) (request ^. #fileRoot) >>= \case
+    Left err -> pure (Left (SuitePreflightError (SuiteFileRootFailed err :| [])))
+    Right root -> do
+      checked <- checkFileRootOutputs root (maybe [] pure (request ^. #suiteOptions . #reportDirectory) <> maybe [] pure (request ^. #hurlOptions . #curlExportPath))
+      pure (either (Left . SuitePreflightError . (:| []) . SuiteFileRootFailed) (const (Right root)) checked)
 
 -- | Public early boundary for core runners and CLI capability detection. Raw
 -- assignments are checked in full before any syntax probe or binding preparation.
@@ -459,6 +479,7 @@ renderSuitePreflightError = Text.intercalate "\n" . map renderSuitePreflightIssu
 
 renderSuitePreflightIssue :: SuitePreflightIssue -> Text
 renderSuitePreflightIssue = \case
+  SuiteFileRootFailed err -> renderFileRootError err
   SuiteDependencyUnavailable -> "suite-dependency-unavailable"
   SuiteScenarioFailed issue -> renderScenarioIssue issue
   SuiteScenarioInputsUnexpected -> "scenario-inputs-unexpected: shared-state suites reject scenario inputs"
@@ -490,6 +511,7 @@ renderSuitePreflightIssue = \case
 -- | Stable codes are the only diagnostic content serialized into summaries.
 suitePreflightReasonCode :: SuitePreflightIssue -> Text
 suitePreflightReasonCode = \case
+  SuiteFileRootFailed _ -> "suite-file-root-invalid"
   SuiteIsolationFailed (SharedStateParallelUnsafe _ _) -> "shared-state-parallel-unsafe"
   SuiteIsolationFailed IndependentStateHandoffRequired -> "independent-state-handoff-required"
   SuiteScenarioFailed issue -> renderScenarioIssue issue

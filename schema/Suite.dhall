@@ -8,6 +8,7 @@ let IsolationPolicy = ./IsolationPolicy.dhall
 in  { Type =
         { name : Text
         , runs : List RunReference
+        , fileRootParameter : Optional Text
         , service : Optional Text
         , services : List Text
         , setup : List CommandSpec.Type
@@ -19,7 +20,8 @@ in  { Type =
         , description : Optional Text
         }
     , default =
-        { service = None Text
+        { fileRootParameter = None Text
+        , service = None Text
         , services = [] : List Text
         , setup = [] : List CommandSpec.Type
         , teardown = [] : List CommandSpec.Type

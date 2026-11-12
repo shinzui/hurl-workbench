@@ -9,6 +9,9 @@ module HurlWorkbench.Run.Prepare
     prepareSelectionWith,
     prepareSelectionWithGenerator,
     prepareExpandedForSuiteWith,
+    prepareSelectionAtFileRootWith,
+    prepareSelectionForSuiteAtFileRootWith,
+    prepareExpandedForSuiteAtFileRootWith,
     buildBatchCase,
     renderPreparationError,
   )
@@ -25,10 +28,11 @@ import HurlWorkbench.Parameter.Generate (GeneratorEnvironment)
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
-import HurlWorkbench.Workspace.Context (ValidatedWorkspace)
-import HurlWorkbench.Workspace.Types (Workflow)
+import HurlWorkbench.Workspace.Context (ValidatedWorkspace, validatedRoot)
+import HurlWorkbench.Workspace.Types (Workflow, WorkspaceRoot (..))
 
 data PreparedRun = PreparedRun
   { displayName :: !Text,
@@ -36,12 +40,14 @@ data PreparedRun = PreparedRun
     safety :: !SafetyDisposition,
     renderedWorkflow :: !RenderedWorkflow,
     bindings :: !ResolvedBindings,
+    fileRoot :: !FileRoot,
     options :: !HurlOptions
   }
   deriving stock (Generic, Eq, Show)
 
 data PreparationError
-  = SelectionPreparationFailed !SelectionError
+  = RunFileRootFailed !FileRootError
+  | SelectionPreparationFailed !SelectionError
   | RunRenderFailed !Text !RenderError
   | RunFormatFailed !Text !HurlfmtError
   | RunBindingFailed !Text !BindingError
@@ -74,13 +80,32 @@ prepareSelectionUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> Bi
 prepareSelectionUsing resolveBindings validateRendered capabilities validated input hurlOptions selection =
   case resolveSelection validated selection of
     Left err -> pure (Left (SelectionPreparationFailed err :| []))
-    Right expanded -> prepareExpandedUsing resolveBindings validateRendered capabilities validated hurlOptions (fmap (,input) expanded)
+    Right expanded -> withDefaultRoot validated $ \root -> prepareExpandedUsing resolveBindings root validateRendered capabilities validated hurlOptions (fmap (,input) expanded)
 
 prepareExpandedForSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> HurlOptions -> NonEmpty (ExpandedRun, BindingInput) -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
-prepareExpandedForSuiteWith = prepareExpandedUsing resolveWorkflowBindingSubsetWithLayers
+prepareExpandedForSuiteWith validateRendered capabilities validated options runs =
+  withDefaultRoot validated $ \root -> prepareExpandedForSuiteAtFileRootWith root validateRendered capabilities validated options runs
 
-prepareExpandedUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)) -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> HurlOptions -> NonEmpty (ExpandedRun, BindingInput) -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
-prepareExpandedUsing resolveBindings validateRendered capabilities validated hurlOptions assignedRuns = do
+withDefaultRoot :: ValidatedWorkspace -> (FileRoot -> IO (Either (NonEmpty PreparationError) a)) -> IO (Either (NonEmpty PreparationError) a)
+withDefaultRoot validated action = validateFileRoot (unWorkspaceRoot (validatedRoot validated)) Nothing >>= either (pure . Left . (:| []) . RunFileRootFailed) action
+
+prepareSelectionAtFileRootWith :: FileRoot -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionAtFileRootWith = prepareSelectionAtFileRootUsing resolveWorkflowBindingsWithLayers
+
+prepareSelectionForSuiteAtFileRootWith :: FileRoot -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionForSuiteAtFileRootWith = prepareSelectionAtFileRootUsing resolveWorkflowBindingSubsetWithLayers
+
+prepareSelectionAtFileRootUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)) -> FileRoot -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionAtFileRootUsing resolveBindings root validateRendered capabilities validated input options selection =
+  case resolveSelection validated selection of
+    Left err -> pure (Left (SelectionPreparationFailed err :| []))
+    Right expanded -> prepareExpandedUsing resolveBindings root validateRendered capabilities validated options (fmap (,input) expanded)
+
+prepareExpandedForSuiteAtFileRootWith :: FileRoot -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> HurlOptions -> NonEmpty (ExpandedRun, BindingInput) -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareExpandedForSuiteAtFileRootWith = prepareExpandedUsing resolveWorkflowBindingSubsetWithLayers
+
+prepareExpandedUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)) -> FileRoot -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> HurlOptions -> NonEmpty (ExpandedRun, BindingInput) -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareExpandedUsing resolveBindings root validateRendered capabilities validated hurlOptions assignedRuns = do
   (_cache, errors, prepared) <- foldM prepareOne (Map.empty, [], []) (NonEmpty.toList assignedRuns)
   pure $ case (nonEmpty (reverse errors), nonEmpty (reverse prepared)) of
     (Just problems, _) -> Left problems
@@ -110,6 +135,7 @@ prepareExpandedUsing resolveBindings validateRendered capabilities validated hur
                     safety = expanded ^. #safety,
                     renderedWorkflow = rendered,
                     bindings,
+                    fileRoot = root,
                     options = hurlOptions
                   }
                   : prepared
@@ -139,6 +165,7 @@ buildBatchCase runMode output reports prepared =
       request =
         RunRequest
           { renderedWorkflow = prepared ^. #renderedWorkflow,
+            fileRoot = prepared ^. #fileRoot,
             mode = runMode,
             bindings = prepared ^. #bindings,
             options = prepared ^. #options,
@@ -149,6 +176,7 @@ buildBatchCase runMode output reports prepared =
 
 renderPreparationError :: PreparationError -> Text
 renderPreparationError = \case
+  RunFileRootFailed err -> renderFileRootError err
   SelectionPreparationFailed err -> renderSelectionError err
   RunRenderFailed name err -> prefix name <> renderRenderError err
   RunFormatFailed name err -> prefix name <> renderHurlfmtError err

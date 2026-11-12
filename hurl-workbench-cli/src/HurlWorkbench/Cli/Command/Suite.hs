@@ -19,6 +19,7 @@ import HurlWorkbench.Hurl.Capabilities
 import HurlWorkbench.Hurl.Format
 import HurlWorkbench.Hurl.Run (mkHurlRunner)
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare (PreparationError (..))
 import HurlWorkbench.Service.Resolve (renderServiceError)
 import HurlWorkbench.Suite.Resolve qualified as Suite
@@ -46,9 +47,10 @@ runSuiteCommandWith detectCapabilities validateRendered global currentDirectory 
       Nothing -> case buildRuntimeInputs (options ^. #bindings) (options ^. #hurl) of
         Left errors -> pure (cliErrors 2 errors)
         Right (bindingInput, hurlOptions) -> do
-          let request scenarioInputs =
+          let request root scenarioInputs =
                 Suite.SuiteRequest
                   { suiteName = options ^. #suite,
+                    fileRoot = root,
                     scenarioInputs,
                     bindingInput,
                     hurlOptions,
@@ -63,35 +65,44 @@ runSuiteCommandWith detectCapabilities validateRendered global currentDirectory 
                           overwriteReports = options ^. #overwrite
                         }
                   }
-              refusal inputs err = preflightResult <$> Suite.finalizeSuitePreflight validated (request inputs) err
-          loaded <- case options ^. #scenarioInputsFile of
+              refusal root inputs err = preflightResult <$> Suite.finalizeSuitePreflight validated (request root inputs) err
+          cliRoot <- case options ^. #hurl . #fileRoot of
             Nothing -> pure (Right Nothing)
-            Just path -> fmap Just <$> loadScenarioInputs (resolvePath path)
-          case loaded of
-            Left issue -> refusal Nothing (Suite.SuitePreflightError (Suite.SuiteScenarioFailed issue :| []))
-            Right inputs ->
-              Suite.preflightScenarioInputs validated (request inputs) >>= \case
-                Left err -> refusal inputs err
-                Right _ ->
-                  detectCapabilities >>= \case
-                    Left _ -> refusal inputs (Suite.SuitePreflightError (Suite.SuiteDependencyUnavailable :| []))
-                    Right capabilities ->
-                      Suite.runSuiteWith validateRendered (mkHurlRunner capabilities) (capabilities ^. #hurlfmt) validated (request inputs) <&> \case
-                        Left err -> preflightResult err
-                        Right result ->
-                          CommandResult
-                            { stdoutLines = [],
-                              stderrLines =
-                                hurlCapabilityWarnings capabilities
-                                  <> replayCaptured (result ^. #cases)
-                                  <> map renderCaseSummary (toList (result ^. #cases))
-                                  <> ["SERVICE " <> unServiceName (event ^. #name) <> " " <> event ^. #action <> " " <> event ^. #status | event <- result ^. #services]
-                                  <> ["PHASE " <> event ^. #phase <> " " <> Text.pack (show (event ^. #ordinal)) <> " " <> Text.pack (show (event ^. #status)) | event <- result ^. #phases]
-                                  <> renderServiceOutcome (result ^. #serviceOutcome)
-                                  <> maybe [] (pure . ("SUMMARY " <>) . Text.pack) (result ^. #summaryPath)
-                                  <> maybe [] (pure . ("ERROR " <>)) (result ^. #summaryError),
-                              exitCode = result ^. #selectedExitCode
-                            }
+            Just path -> fmap Just <$> validateFileRoot currentDirectory (Just path)
+          case cliRoot of
+            Left err -> pure (cliFailure 2 [renderFileRootError err])
+            Right selected ->
+              Suite.preflightFileRoot validated (request selected Nothing) >>= \case
+                Left err -> pure (preflightResult err)
+                Right root -> do
+                  loaded <- case options ^. #scenarioInputsFile of
+                    Nothing -> pure (Right Nothing)
+                    Just path -> fmap Just <$> loadScenarioInputs (resolvePath path)
+                  case loaded of
+                    Left issue -> refusal (Just root) Nothing (Suite.SuitePreflightError (Suite.SuiteScenarioFailed issue :| []))
+                    Right inputs ->
+                      Suite.preflightScenarioInputs validated (request (Just root) inputs) >>= \case
+                        Left err -> refusal (Just root) inputs err
+                        Right _ ->
+                          detectCapabilities >>= \case
+                            Left _ -> refusal (Just root) inputs (Suite.SuitePreflightError (Suite.SuiteDependencyUnavailable :| []))
+                            Right capabilities ->
+                              Suite.runSuiteWith validateRendered (mkHurlRunner capabilities) (capabilities ^. #hurlfmt) validated (request (Just root) inputs) <&> \case
+                                Left err -> preflightResult err
+                                Right result ->
+                                  CommandResult
+                                    { stdoutLines = [],
+                                      stderrLines =
+                                        hurlCapabilityWarnings capabilities
+                                          <> replayCaptured (result ^. #cases)
+                                          <> map renderCaseSummary (toList (result ^. #cases))
+                                          <> ["SERVICE " <> unServiceName (event ^. #name) <> " " <> event ^. #action <> " " <> event ^. #status | event <- result ^. #services]
+                                          <> ["PHASE " <> event ^. #phase <> " " <> Text.pack (show (event ^. #ordinal)) <> " " <> Text.pack (show (event ^. #status)) | event <- result ^. #phases]
+                                          <> renderServiceOutcome (result ^. #serviceOutcome)
+                                          <> maybe [] (pure . ("SUMMARY " <>) . Text.pack) (result ^. #summaryPath)
+                                          <> maybe [] (pure . ("ERROR " <>)) (result ^. #summaryError),
+                                      exitCode = result ^. #selectedExitCode
+                                    }
   where
     resolvePath path
       | isAbsolute path = path

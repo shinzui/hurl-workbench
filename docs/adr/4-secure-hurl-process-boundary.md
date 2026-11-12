@@ -79,3 +79,24 @@ TERM/KILL and reaping primitive. Ownership is established under masking before
 execution becomes interruptible. Cleanup precedes exception propagation and
 capture finalization; leader exit does not prove descendant termination. This
 applies to inherited-output execution as well, preserving its inherited streams.
+
+## Caller-owned body directories (2026-11-12)
+
+[Plan 12](../plans/12-support-caller-owned-file-roots-for-hurl-executions.md) separates Hurl's
+body-file base from the validated workspace source root. Every request carries an abstract
+FileRoot obtained through filesystem validation. Default preparation validates the workspace;
+explicit preparation takes the immutable validated value. Effective read/search checks precede
+capability detection and rendering. No current-directory mutation or global cache is involved.
+The process adapter uses only this value for `--file-root`, leaving source composition unchanged.
+
+CLI-relative paths use the invocation directory; suite `fileRootParameter` values use the
+workspace and resolve only suite-wide Plain bindings. CLI selection wins without resolving a
+shadowed value. Static reference validation remains mandatory. Version-1 compatibility inserts
+None into older suite values and list element types without weakening exact extraction.
+
+Explicit input roots and output trees must be disjoint after canonicalizing symlink parents,
+before report reservation, overwrite, or chmod. Default workspace-root execution retains its
+existing output layout. This includes refusal summaries and direct core request/artifact APIs.
+Root Show output and structured summaries omit the value. The caller owns input lifetime and
+cleanup even on failure or cancellation; disappearing inputs cause runtime failure. This base
+directory is not a sandbox for arbitrary Hurl-authored file paths.

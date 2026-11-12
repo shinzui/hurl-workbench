@@ -32,7 +32,7 @@ Execution commands accept repeatable `--variable NAME=VALUE`, `--variables-file 
 mutating recipes/matrix cases and for unclassified direct workflows inside suites.
 
 Typed Hurl controls are `--connect-timeout`, `--max-time`, `--retry`, `--retry-interval`,
-`--insecure`, `--include`, `--json`, `--verbose` or `--very-verbose`, and `--curl FILE`. The only
+`--insecure`, `--include`, `--json`, `--verbose` or `--very-verbose`, `--file-root DIR`, and `--curl FILE`. The only
 accepted repeatable `--hurl-arg` values are:
 
 ```text
@@ -124,3 +124,22 @@ reading the clock or entropy. Run/test resolve fresh inputs per Hurl execution;
 `--variable name=value` and `--variables-file` support reproducible overrides.
 Generation failures identify only the parameter and generator kind and fail
 execution preflight with exit status 2.
+
+## Request body file roots
+
+`run workflow`, `test workflow`, `run recipe`, `test recipe`, `matrix`, and `test suite`
+accept `--file-root DIR`. Relative CLI paths use the invocation directory. Without an override,
+Hurl reads file request bodies relative to the canonical workspace root. Only execution accepts
+the option; render and validate continue without runtime body files.
+
+A suite can instead declare `fileRootParameter = Some "payloadRoot"`. The named declared Plain
+parameter resolves once from suite-level runtime inputs, environment, or defaults; a relative
+value uses the workspace root. CLI `--file-root` wins and requires no shadowed parameter value.
+Secret, Generated, unknown, and malformed references fail workspace validation.
+
+Missing, regular-file, unreadable, or unsearchable roots fail with exit 2 before subprocesses,
+including version probes. Explicit body roots and output/report/curl trees must be disjoint,
+including symlink aliases and overwrite ancestors. Explicitly selecting the workspace applies
+this rule too; the default allows the existing workspace-local report layout.
+The caller keeps the directory alive and readable until execution finishes and owns its cleanup.
+See [the byte-preserving example](../../examples/file-body/README.md).

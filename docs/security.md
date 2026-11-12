@@ -124,3 +124,20 @@ reports can contain echoed inputs. These generators are not a secret/token API.
 UUID7 and TypeID expose the current millisecond timestamp; no strict monotonic
 ordering is promised. Timestamps and short random strings may coincide even
 though each execution generates independently.
+
+## Caller-owned body roots
+
+Execution carries an abstract, validated `FileRoot` separately from canonical fragment source
+paths. Read and search access are verified with filesystem operations under the effective user
+before dependency probes or execution. Explicit roots may be external directories or symlinks
+to readable directories. Selection is immutable per invocation; no process-global directory
+change or cache is used. The caller must keep the directory alive through execution.
+
+Before output preparation or overwrite, explicit body roots and output trees must be disjoint
+after canonicalizing parent paths. This includes matrix response roots, suite report roots,
+curl files, direct core request targets, and refusal-summary reservation. The default workspace
+root retains existing output rules; explicitly selecting it applies the stronger disjoint rule.
+Workbench never owns cleanup or permission changes for caller inputs. Root values and body bytes
+are absent from structured summaries and root Show output. Hurl argv necessarily contains the
+canonical root, so a suite selector must be Plain. This is a body-file base, not a sandbox for
+arbitrary paths in user-authored Hurl. Source-fragment containment remains unchanged.

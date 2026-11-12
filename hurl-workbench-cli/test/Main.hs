@@ -9,6 +9,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Version (makeVersion)
+import FileRootTest qualified
 import FixtureServer qualified
 import HurlWorkbench.Cli (runCommandWithDependencies, runCommandWithHurlfmt)
 import HurlWorkbench.Cli.Command.Suite qualified as SuiteCommand
@@ -23,13 +24,14 @@ import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Suite.Resolve (ReportFormat (..))
 import HurlWorkbench.Workflow.Render (RenderedWorkflow, renderRenderError, renderWorkflow)
 import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
 import HurlWorkbench.Workspace.Context (lookupWorkflow)
-import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), SuiteName (..), WorkflowName (..), mkHurlValueLiteral)
+import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), SuiteName (..), WorkflowName (..), WorkspaceRoot (..), mkHurlValueLiteral)
 import Network.Wai (queryString)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (CompletionResult (..), ParserResult (..), defaultPrefs, execParserPure, renderFailure)
@@ -42,7 +44,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 main :: IO ()
-main = defaultMain (testGroup "hurl-workbench-cli" [parserTests, commandTests, executionTests])
+main = defaultMain (testGroup "hurl-workbench-cli" [FileRootTest.tests, parserTests, commandTests, executionTests])
 
 fixtureDir :: FilePath -> FilePath
 fixtureDir name = "../hurl-workbench-core/test/fixtures/workspaces" </> name
@@ -685,11 +687,13 @@ positiveJobs :: Int -> PositiveInt
 positiveJobs value = either (error . show) id (mkPositiveInt value)
 
 runLive :: HurlCapabilities -> RenderedWorkflow -> ResolvedBindings -> HurlRunMode -> IO RunResult
-runLive capabilities rendered bindings mode =
+runLive capabilities rendered bindings mode = do
+  root <- validateFileRoot (unWorkspaceRoot (rendered ^. #workspaceRoot)) Nothing >>= either (assertFailure . show) pure
   runHurl
     (mkHurlRunner capabilities)
     RunRequest
       { renderedWorkflow = rendered,
+        fileRoot = root,
         mode,
         bindings,
         options = defaultHurlOptions,

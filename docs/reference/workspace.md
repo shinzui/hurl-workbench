@@ -59,7 +59,7 @@ All `description` fields are `Optional Text` and default to `None Text`.
 - `ServiceStep`: `Stop Text`, `Start Text`, or `Restart Text`.
 - `RunReference`: `Workflow Text`, `Recipe Text`, `Matrix Text`, or `Service ServiceStep`.
 - `IsolationPolicy`: `SharedState` or `IndependentState`.
-- `Suite`: `name`, non-empty Hurl `runs` (with optional lifecycle steps), optional `service`, ordered `services` (default `[]`), `setup` and `teardown` command lists (default `[]`), positive `commandTimeoutSeconds` (default `60`) and `cleanupTimeoutSeconds` (default `30`), `isolation` (default `SharedState`),
+- `Suite`: optional `fileRootParameter` (default `None Text`), `name`, non-empty Hurl `runs` (with optional lifecycle steps), optional `service`, ordered `services` (default `[]`), `setup` and `teardown` command lists (default `[]`), positive `commandTimeoutSeconds` (default `60`) and `cleanupTimeoutSeconds` (default `30`), `isolation` (default `SharedState`),
   `failFast` (default `False`), and description. IndependentState cannot declare a managed service
   and requires a verified runtime handoff at execution.
 
@@ -150,3 +150,14 @@ retries. Matrix cases and suite Hurl runs generate independently. Suite commands
 and readiness URLs cannot consume Generated inputs; use Plain inputs to share an
 identity across executions. Schema version 1 still accepts legacy Plain/Secret
 unions, including empty typed parameter lists.
+
+## Suite body directory parameter
+
+`Suite.fileRootParameter : Optional Text` names a declared Plain parameter. It selects Hurl's
+file request-body base once for every Hurl run in the suite, using suite-wide bindings only.
+Recipe and matrix-case values cannot select it. Relative values use the workspace root;
+CLI `--file-root` overrides the parameter, resolving relative to the invocation directory.
+Static validation checks the reference and kind without reading the directory or requiring a
+runtime value. Secret and Generated parameters cannot select paths exposed to Hurl argv.
+Old schema-version-1 records, including empty suite list annotations, decode with `None`.
+Fragment paths and rendered source are unaffected.

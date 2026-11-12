@@ -62,6 +62,11 @@ examples: cabal-index
     "$workbench" --workspace examples/generated-parameters/hurl-workbench.dhall test recipe recipient; \
     "$workbench" --workspace examples/generated-parameters/hurl-workbench.dhall test recipe recipient; \
     "$workbench" --workspace examples/generated-parameters/hurl-workbench.dhall test recipe recipient --variable recipientId=rcp_01h2xcejqtf2nbrexx3vqjhp41; \
+    payload_root="$work_dir/payload"; mkdir "$payload_root"; \
+    printf '{"message":"雪"}\r\n' > "$payload_root/request.json"; \
+    "$workbench" --workspace examples/file-body/hurl-workbench.dhall run workflow send-body --file-root "$payload_root" > "$work_dir/body.response"; \
+    cmp "$payload_root/request.json" "$work_dir/body.response"; \
+    "$workbench" --workspace examples/file-body/hurl-workbench.dhall test workflow send-body --file-root "$payload_root"; \
     kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""; \
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite default --jobs 2 --report junit --report html --report json --report tap --report-dir "$work_dir/reports"; \
     HURL_WORKBENCH_FIXTURE_EXECUTABLE="$fixture_server" HURL_WORKBENCH_CURL_EXECUTABLE="$(command -v curl)" PORT=1 REI_PG_CONNECTION_STRING=private-rei-sentinel REI_CONFIG=private-config-sentinel MORI_API_URL=private-mori-sentinel "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite clean --report-dir "$work_dir/clean-reports"; \
@@ -70,6 +75,7 @@ examples: cabal-index
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite writes --allow-mutating; \
     echo "examples: PASS"
     HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" HURL_WORKBENCH_FIXTURE_EXECUTABLE="$(cabal list-bin hurl-workbench-fixture-server)" python3 scripts/check-multi-service-local.py
+    HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-file-root-permissions.py
     bash scripts/check-clean-environment-lease-simulation.sh
     HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-scenario-isolation-local.py
 

@@ -20,9 +20,11 @@ import HurlWorkbench.Hurl.Format
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
+import HurlWorkbench.Workspace.Context (validatedRoot)
 import HurlWorkbench.Workspace.Types
 import HurlWorkbench.Workspace.Validate (isValidEnvironmentName, isValidParameterName)
 
@@ -43,50 +45,60 @@ runExecuteWith detectCapabilities validateRendered global currentDirectory mode 
     Right validated -> case buildExecutionInputs executeOptions of
       Left errors -> pure (cliErrors 2 errors)
       Right (bindingInput, hurlOptions) ->
-        detectCapabilities >>= \case
-          Left err -> pure (cliFailure 3 [renderDependencyError err])
-          Right capabilities ->
-            prepareSelectionWith
-              validateRendered
-              (capabilities ^. #hurlfmt)
-              validated
-              bindingInput
-              hurlOptions
-              (executeOptions ^. #selection)
-              >>= \case
-                Left errors ->
-                  pure
-                    ( cliErrors
-                        (preparationExitCode errors)
-                        (map (("preflight: " <>) . renderPreparationError) (toList errors))
-                    )
-                Right (prepared :| [])
-                  | mutatingDenied (executeOptions ^. #allowMutating) (prepared ^. #safety) ->
-                      pure (cliFailure 2 ["mutating recipe requires --allow-mutating"])
-                  | otherwise -> do
-                      executed <-
-                        runHurl
-                          (mkHurlRunner capabilities)
-                          RunRequest
-                            { renderedWorkflow = prepared ^. #renderedWorkflow,
-                              mode,
-                              bindings = prepared ^. #bindings,
-                              options = prepared ^. #options,
-                              outputPolicy = InheritRunOutput,
-                              reportTargets = []
-                            }
-                      pure $ case executed of
-                        Left err ->
-                          cliFailure
-                            (runStartExitCode err)
-                            [renderRunStartError err]
-                        Right result ->
-                          CommandResult
-                            { stdoutLines = [],
-                              stderrLines = hurlCapabilityWarnings capabilities,
-                              exitCode = result ^. #exitCode
-                            }
-                Right _ -> pure (cliFailure 2 ["run and test accept one workflow or recipe, not a matrix"])
+        let requested = executeOptions ^. #hurl . #fileRoot
+            base = maybe (unWorkspaceRoot (validatedRoot validated)) (const currentDirectory) requested
+         in validateFileRoot base requested >>= \case
+              Left err -> pure (cliFailure 2 [renderFileRootError err])
+              Right root ->
+                checkFileRootOutputs root (maybe [] pure (hurlOptions ^. #curlExportPath)) >>= \case
+                  Left err -> pure (cliFailure 2 [renderFileRootError err])
+                  Right () ->
+                    detectCapabilities >>= \case
+                      Left err -> pure (cliFailure 3 [renderDependencyError err])
+                      Right capabilities ->
+                        prepareSelectionAtFileRootWith
+                          root
+                          validateRendered
+                          (capabilities ^. #hurlfmt)
+                          validated
+                          bindingInput
+                          hurlOptions
+                          (executeOptions ^. #selection)
+                          >>= \case
+                            Left errors ->
+                              pure
+                                ( cliErrors
+                                    (preparationExitCode errors)
+                                    (map (("preflight: " <>) . renderPreparationError) (toList errors))
+                                )
+                            Right (prepared :| [])
+                              | mutatingDenied (executeOptions ^. #allowMutating) (prepared ^. #safety) ->
+                                  pure (cliFailure 2 ["mutating recipe requires --allow-mutating"])
+                              | otherwise -> do
+                                  executed <-
+                                    runHurl
+                                      (mkHurlRunner capabilities)
+                                      RunRequest
+                                        { renderedWorkflow = prepared ^. #renderedWorkflow,
+                                          fileRoot = root,
+                                          mode,
+                                          bindings = prepared ^. #bindings,
+                                          options = prepared ^. #options,
+                                          outputPolicy = InheritRunOutput,
+                                          reportTargets = []
+                                        }
+                                  pure $ case executed of
+                                    Left err ->
+                                      cliFailure
+                                        (runStartExitCode err)
+                                        [renderRunStartError err]
+                                    Right result ->
+                                      CommandResult
+                                        { stdoutLines = [],
+                                          stderrLines = hurlCapabilityWarnings capabilities,
+                                          exitCode = result ^. #exitCode
+                                        }
+                            Right _ -> pure (cliFailure 2 ["run and test accept one workflow or recipe, not a matrix"])
 
 buildExecutionInputs :: ExecuteOptions -> Either [Text] (BindingInput, HurlOptions)
 buildExecutionInputs executeOptions = buildRuntimeInputs (executeOptions ^. #bindings) (executeOptions ^. #hurl)
@@ -186,6 +198,7 @@ mutatingDenied allowed = \case
 
 runStartExitCode :: RunStartError -> Int
 runStartExitCode = \case
+  InvalidFileRootLayout {} -> 2
   HurlSpawnFailed {} -> 3
   InvalidRunOptions {} -> 2
   SecureRunFileError {} -> 2

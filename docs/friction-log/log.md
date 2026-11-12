@@ -2,6 +2,9 @@
 
 ## 2026-11-12
 
+* **Addition**: FRIC-11 records detour environment friction with mori://shinzui/mori: Mori registry unavailable during file-root implementation
+
+
 * **Update**: FRIC-10 resolved: Fix readiness publication ordering in the existing fixture.
 
 

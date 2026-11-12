@@ -314,6 +314,7 @@ suiteRequest directory jobs =
   SuiteRequest
     (SuiteName "failure")
     Nothing
+    Nothing
     emptyBindingInput
     defaultHurlOptions
     (SuiteOptions (either (error . show) id (mkPositiveInt jobs)) Nothing False True Set.empty (Just (directory </> "reports")) False)

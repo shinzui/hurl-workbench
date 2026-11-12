@@ -127,12 +127,14 @@ test-suite hurl-workbench-cli-test
 
   main-is: Main.hs
   other-modules:
+    FileRootTest
     FixtureServer
 
   ghc-options:
     -threaded
 
   build-depends:
+    async,
     base >=4.20 && <5,
     bytestring,
     containers,

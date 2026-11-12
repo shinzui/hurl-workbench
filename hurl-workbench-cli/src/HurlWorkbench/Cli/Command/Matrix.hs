@@ -25,12 +25,13 @@ import HurlWorkbench.Parameter.Resolve (BindingInput)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Artifact
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
-import HurlWorkbench.Workspace.Context (lookupMatrix)
-import HurlWorkbench.Workspace.Types (IsolationPolicy (..), MatrixName (..), Safety (..))
+import HurlWorkbench.Workspace.Context (lookupMatrix, validatedRoot)
+import HurlWorkbench.Workspace.Types (IsolationPolicy (..), MatrixName (..), Safety (..), WorkspaceRoot (..))
 import System.Exit (ExitCode (..))
 import System.FilePath (isAbsolute, (</>))
 import System.IO qualified as IO
@@ -59,50 +60,59 @@ runMatrixWith detectCapabilities validateRendered global currentDirectory matrix
         Nothing -> case buildInputs matrixOptions of
           Left errors -> pure (cliErrors 2 errors)
           Right (bindingInput, hurlOptions) ->
-            detectCapabilities >>= \case
-              Left err -> pure (cliFailure 3 [renderDependencyError err])
-              Right capabilities ->
-                prepareSelectionWith
-                  validateRendered
-                  (capabilities ^. #hurlfmt)
-                  validated
-                  bindingInput
-                  hurlOptions
-                  (SelectMatrix (matrixOptions ^. #matrix))
-                  >>= \case
-                    Left errors ->
-                      pure
-                        ( cliErrors
-                            (preparationExitCode errors)
-                            (map (("preflight: " <>) . renderPreparationError) (toList errors))
-                        )
-                    Right prepared
-                      | any (mutatingDenied (matrixOptions ^. #allowMutating) . view #safety) prepared ->
-                          pure (cliFailure 2 ["mutating matrix requires --allow-mutating"])
-                      | isJust (matrixOptions ^. #hurl . #curlExportPath) && length prepared > 1 ->
-                          pure (cliFailure 2 ["--curl has one path and cannot be shared by multiple matrix cases"])
-                      | otherwise -> do
-                          built <- buildCases currentDirectory matrixOptions prepared
-                          case built of
-                            Left errors -> pure (cliErrors 2 (map renderArtifactError (toList errors)))
-                            Right batchCases -> do
-                              let failFast = fromMaybe (matrixDefinition ^. #failFast) (matrixOptions ^. #failFastOverride)
-                                  batchOptions = BatchOptions (matrixOptions ^. #jobs) failFast
-                                  runner = mkHurlRunner capabilities
-                              selectedRunner <-
-                                if usesInheritedOutput matrixOptions
-                                  then labelSequentialRunner (map (view #name) (toList batchCases)) runner
-                                  else pure runner
-                              result <- runBatch selectedRunner batchOptions batchCases
-                              pure
-                                CommandResult
-                                  { stdoutLines = [],
-                                    stderrLines =
-                                      hurlCapabilityWarnings capabilities
-                                        <> replayCaptured (result ^. #cases)
-                                        <> map renderCaseSummary (toList (result ^. #cases)),
-                                    exitCode = result ^. #selectedExitCode
-                                  }
+            let requested = matrixOptions ^. #hurl . #fileRoot
+                base = maybe (unWorkspaceRoot (validatedRoot validated)) (const currentDirectory) requested
+             in validateFileRoot base requested >>= \case
+                  Left err -> pure (cliFailure 2 [renderFileRootError err])
+                  Right root ->
+                    checkFileRootOutputs root (maybe [] pure (matrixOptions ^. #outputDirectory) <> maybe [] pure (hurlOptions ^. #curlExportPath)) >>= \case
+                      Left err -> pure (cliFailure 2 [renderFileRootError err])
+                      Right () ->
+                        detectCapabilities >>= \case
+                          Left err -> pure (cliFailure 3 [renderDependencyError err])
+                          Right capabilities ->
+                            prepareSelectionAtFileRootWith
+                              root
+                              validateRendered
+                              (capabilities ^. #hurlfmt)
+                              validated
+                              bindingInput
+                              hurlOptions
+                              (SelectMatrix (matrixOptions ^. #matrix))
+                              >>= \case
+                                Left errors ->
+                                  pure
+                                    ( cliErrors
+                                        (preparationExitCode errors)
+                                        (map (("preflight: " <>) . renderPreparationError) (toList errors))
+                                    )
+                                Right prepared
+                                  | any (mutatingDenied (matrixOptions ^. #allowMutating) . view #safety) prepared ->
+                                      pure (cliFailure 2 ["mutating matrix requires --allow-mutating"])
+                                  | isJust (matrixOptions ^. #hurl . #curlExportPath) && length prepared > 1 ->
+                                      pure (cliFailure 2 ["--curl has one path and cannot be shared by multiple matrix cases"])
+                                  | otherwise -> do
+                                      built <- buildCases currentDirectory matrixOptions prepared
+                                      case built of
+                                        Left errors -> pure (cliErrors 2 (map renderArtifactError (toList errors)))
+                                        Right batchCases -> do
+                                          let failFast = fromMaybe (matrixDefinition ^. #failFast) (matrixOptions ^. #failFastOverride)
+                                              batchOptions = BatchOptions (matrixOptions ^. #jobs) failFast
+                                              runner = mkHurlRunner capabilities
+                                          selectedRunner <-
+                                            if usesInheritedOutput matrixOptions
+                                              then labelSequentialRunner (map (view #name) (toList batchCases)) runner
+                                              else pure runner
+                                          result <- runBatch selectedRunner batchOptions batchCases
+                                          pure
+                                            CommandResult
+                                              { stdoutLines = [],
+                                                stderrLines =
+                                                  hurlCapabilityWarnings capabilities
+                                                    <> replayCaptured (result ^. #cases)
+                                                    <> map renderCaseSummary (toList (result ^. #cases)),
+                                                exitCode = result ^. #selectedExitCode
+                                              }
 
 buildInputs :: MatrixOptions -> Either [Text] (BindingInput, HurlOptions)
 buildInputs matrixOptions =

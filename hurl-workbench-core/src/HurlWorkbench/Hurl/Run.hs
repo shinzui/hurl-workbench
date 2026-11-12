@@ -34,6 +34,7 @@ import HurlWorkbench.Parameter.Resolve (ResolvedBindings (..))
 import HurlWorkbench.Parameter.Resolve.Internal (secretValueText)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Process.Run
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Workflow.Render
 import HurlWorkbench.Workspace.Types
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, removeFile)
@@ -122,6 +123,7 @@ mkAllowedHurlArgument rawArgument
 
 data RunRequest = RunRequest
   { renderedWorkflow :: !RenderedWorkflow,
+    fileRoot :: !FileRoot,
     mode :: !HurlRunMode,
     bindings :: !ResolvedBindings,
     options :: !HurlOptions,
@@ -139,7 +141,8 @@ instance Show RunRequest where
       <> ", bindings=<redacted>}"
 
 data RunStartError
-  = InvalidRunOptions !(NonEmpty HurlOptionError)
+  = InvalidFileRootLayout !FileRootError
+  | InvalidRunOptions !(NonEmpty HurlOptionError)
   | SecureRunFileError !FilePath !Text
   | HurlSpawnFailed !FilePath !Text
   deriving stock (Generic, Eq, Show)
@@ -167,11 +170,16 @@ mkHurlRunner capabilities = HurlRunner (runRequest capabilities)
 runRequest :: HurlCapabilities -> RunRequest -> IO (Either RunStartError RunResult)
 runRequest capabilities request = case validateRequest request of
   Just issues -> pure (Left (InvalidRunOptions issues))
-  Nothing -> do
-    attempted <- try @IOException (withSystemTempDirectory "hurl-workbench-run" (prepareAndRun capabilities request))
-    pure $ case attempted of
-      Left err -> Left (SecureRunFileError "temporary execution directory" (Text.pack (displayException err)))
-      Right result -> result
+  Nothing ->
+    checkFileRootOutputs (request ^. #fileRoot) outputPaths >>= \case
+      Left err -> pure (Left (InvalidFileRootLayout err))
+      Right () -> do
+        attempted <- try @IOException (withSystemTempDirectory "hurl-workbench-run" (prepareAndRun capabilities request))
+        pure $ case attempted of
+          Left err -> Left (SecureRunFileError "temporary execution directory" (Text.pack (displayException err)))
+          Right result -> result
+  where
+    outputPaths = maybe [] pure (responseTarget (request ^. #outputPolicy)) <> maybe [] pure (request ^. #options . #curlExportPath) <> map (\case JUnitReport p -> p; HtmlReport p -> p; JsonReport p -> p; TapReport p -> p) (request ^. #reportTargets)
 
 prepareAndRun :: HurlCapabilities -> RunRequest -> FilePath -> IO (Either RunStartError RunResult)
 prepareAndRun capabilities request directory = do
@@ -298,7 +306,7 @@ buildArguments request renderedPath variablesPath secretsPath =
     <> maybe [] (\path -> ["--output", path]) (responseTarget (request ^. #outputPolicy))
     <> [renderedPath]
   where
-    WorkspaceRoot root = request ^. #renderedWorkflow . #workspaceRoot
+    root = fileRootPath (request ^. #fileRoot)
 
 renderOptions :: HurlOptions -> [String]
 renderOptions options =
@@ -357,6 +365,7 @@ reportFormat = \case
 
 renderRunStartError :: RunStartError -> Text
 renderRunStartError = \case
+  InvalidFileRootLayout err -> renderFileRootError err
   InvalidRunOptions issues -> Text.intercalate "\n" (map renderOptionError (toList issues))
   SecureRunFileError path message -> "could not prepare secure run file " <> Text.pack path <> ": " <> message
   HurlSpawnFailed path message -> "Hurl could not be started at " <> Text.pack path <> ": " <> message

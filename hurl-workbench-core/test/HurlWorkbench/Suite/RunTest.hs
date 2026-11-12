@@ -17,6 +17,7 @@ import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Run.FileRoot
 import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Suite.LifecycleTest qualified as LifecycleTest
 import HurlWorkbench.Suite.Resolve
@@ -39,9 +40,26 @@ tests =
   testGroup
     "integration suites"
     [ LifecycleTest.tests,
+      testCase "explicit suite roots reach every request and protect refusal-summary inputs" $
+        withSystemTempDirectory "suite-file-root" $ \directory -> do
+          workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
+          root <- validateFileRoot directory (Just directory) >>= either (assertFailure . show) pure
+          requests <- newTVarIO []
+          let input = emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") (literal "http://fixture.test")}
+              request = SuiteRequest (SuiteName "reads") (Just root) Nothing input defaultHurlOptions (SuiteOptions (positive 2) Nothing False False Set.empty Nothing False)
+          _ <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
+          observed <- readTVarIO requests
+          assertBool "all suite cases ran" (length observed > 1)
+          for_ observed $ \run -> run ^. #fileRoot @?= root
+          let forbidden _ _ = assertFailure "formatter ran before output preflight"
+          result <- runSuiteWith forbidden (HurlRunner (const (assertFailure "Hurl ran"))) trueCapabilities workspace (request & #suiteOptions . #reportDirectory .~ Just directory & #suiteOptions . #overwriteReports .~ True)
+          case result of
+            Left err -> assertBool "root failure" (all (\case SuiteFileRootFailed _ -> True; _ -> False) (err ^. #issues))
+            Right _ -> assertFailure "suite accepted overlapping report root"
+          doesPathExist (directory </> "reads") >>= (@?= False),
       testCase "parallel unsafe suites are refused before syntax, binding IO, service, or Hurl" $ do
         workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
-        let request name allowed manage = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing allowed manage Set.empty Nothing False)
+        let request name allowed manage = SuiteRequest (SuiteName name) Nothing Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing allowed manage Set.empty Nothing False)
             forbidden _ _ = assertFailure "syntax validator called"
             runner = HurlRunner (const (assertFailure "Hurl started"))
         for_ [False, True] $ \allowed -> for_ [False, True] $ \manage -> do
@@ -65,7 +83,7 @@ tests =
       testCase "parallel reads and serial authorized mutations remain supported" $ do
         workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
         requests <- newTVarIO []
-        let request name jobs allowed = SuiteRequest (SuiteName name) Nothing (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") (literal "http://fixture.test")}) defaultHurlOptions (SuiteOptions (positive jobs) Nothing allowed False Set.empty Nothing False)
+        let request name jobs allowed = SuiteRequest (SuiteName name) Nothing Nothing (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") (literal "http://fixture.test")}) defaultHurlOptions (SuiteOptions (positive jobs) Nothing allowed False Set.empty Nothing False)
         readResult <- runSuite (recordingRunner requests) trueCapabilities workspace (request "reads" 2 False) >>= requireSuite
         readResult ^. #selectedExitCode @?= ExitSuccess
         length <$> readTVarIO requests >>= (@?= 3)
@@ -78,7 +96,7 @@ tests =
         withSystemTempDirectory "suite-preflight-summary" $ \directory -> do
           workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
           let runner = HurlRunner (const (assertFailure "preflight started Hurl"))
-              request name root = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing True False Set.empty (Just root) False)
+              request name root = SuiteRequest (SuiteName name) Nothing Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing True False Set.empty (Just root) False)
           for_ [("mixed", "refused"), ("reads", "setup-failed")] $ \(name, status) -> do
             let root = directory </> name
             runSuiteWith (\_ _ -> pure (Right ())) runner trueCapabilities workspace (request (Text.pack name) root) >>= \case
@@ -99,7 +117,7 @@ tests =
           workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
           let outsideDirectory = directory </> "outside"
               link = directory </> "link"
-              request name root = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing True False Set.empty (Just root) True)
+              request name root = SuiteRequest (SuiteName name) Nothing Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing True False Set.empty (Just root) True)
               runner = HurlRunner (const (assertFailure "unexpected execution"))
           createDirectoryIfMissing True outsideDirectory
           ByteString.writeFile (outsideDirectory </> "sentinel") "preserve"
@@ -121,7 +139,7 @@ tests =
           active <- newTVarIO (0 :: Int)
           let summaryPath = directory </> "reads" </> "summary.json"
               literal_ = literal "private-plain-sentinel"
-              request = SuiteRequest (SuiteName "reads") Nothing (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") literal_}) defaultHurlOptions (SuiteOptions (positive 1) Nothing False False Set.empty (Just directory) False)
+              request = SuiteRequest (SuiteName "reads") Nothing Nothing (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") literal_}) defaultHurlOptions (SuiteOptions (positive 1) Nothing False False Set.empty (Just directory) False)
               runner = HurlRunner $ \_ -> do
                 ordinal <- atomically $ do
                   modifyTVar' starts (+ 1)
@@ -161,7 +179,7 @@ tests =
               sabotage service = service & #command . #executable .~ "python3" & #command . #arguments .~ ["-c", "import os, sys; os.mkdir(sys.argv[1]); raise SystemExit(9)", Text.pack summaryPath]
           workspace <- validateWorkspace (context & #workspace . #services %~ map sabotage) >>= either (assertFailure . show) pure
           requests <- newTVarIO []
-          let request = SuiteRequest (SuiteName "failure") Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty (Just directory) False)
+          let request = SuiteRequest (SuiteName "failure") Nothing Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty (Just directory) False)
           result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
           result ^. #selectedExitCode @?= ExitFailure 4
           assertBool "summary failure retained" (isJust (result ^. #summaryError))
@@ -172,7 +190,7 @@ tests =
             services = map (\service -> service & #command . #environmentPolicy .~ Clean ["HURL_WORKBENCH_TEST_ABSENT_972638"]) (validatedWorkspace original ^. #services)
         workspace <- validateWorkspace (context & #workspace . #services .~ services) >>= either (assertFailure . show) pure
         requests <- newTVarIO []
-        let request = SuiteRequest (SuiteName "failure") Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty Nothing False)
+        let request = SuiteRequest (SuiteName "failure") Nothing Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty Nothing False)
         result <- runSuite (recordingRunner requests) trueCapabilities workspace request
         case result of
           Left err -> assertBool "missing environment rejected in preflight" (any (\case SuiteServiceResolutionFailed _ -> True; _ -> False) (err ^. #issues))
@@ -226,6 +244,7 @@ tests =
         let request =
               SuiteRequest
                 { suiteName = SuiteName "failure",
+                  fileRoot = Nothing,
                   scenarioInputs = Nothing,
                   bindingInput = emptyBindingInput,
                   hurlOptions = defaultHurlOptions,
@@ -244,6 +263,7 @@ fullSuiteRequest :: FilePath -> Bool -> Bool -> Set ReportFormat -> Maybe FilePa
 fullSuiteRequest directory allowMutating manageService reportFormats reportDirectory overwriteReports =
   SuiteRequest
     { suiteName = SuiteName "smoke",
+      fileRoot = Nothing,
       scenarioInputs = Nothing,
       bindingInput =
         emptyBindingInput

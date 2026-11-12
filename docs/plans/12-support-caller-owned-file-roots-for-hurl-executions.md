@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-11T21:02:49Z
       mode: "other"
       note: "Complete initial IR plan, link created Mina intention, and check cross-plan acceptance contracts"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-12T13:31:42Z
+      mode: "implement"
+      note: "Implement validated caller-owned file roots and acceptance coverage"
 ---
 
 # Support caller-owned file roots for Hurl executions
@@ -35,14 +40,16 @@ This implements [IR-3](../improvement-requests/allow-a-run-scoped-file-root-for-
 ## Progress
 
 
-- [ ] Milestone 1: Execution options and optional suite parameter resolve to a validated root before any child process starts.
-- [ ] Milestone 2: Every execution path passes the selected root to Hurl while preserving workspace source containment and default behavior.
+- [x] Milestone 1 (2026-11-12): CLI execution options and the optional Plain suite parameter resolve before subprocess probes. Injected callback tests cover missing, regular-file, empty, unreadable, and unsearchable roots; frozen version-1 manifests still pass schema compatibility.
+- [x] Milestone 2 (2026-11-12): Typed roots reach single requests, matrix cases, and suite batches. Captured argv, core preparation, artifact-overlap, and refusal-summary tests pass; source escape tests remain green. Core suite: 123 tests passed.
 - [ ] Milestone 3: Real byte-capture, concurrent invocation, failure/cancellation, and package/example checks prove ownership and isolation.
 
-Planning handoff: implementation has not started; its Mina intention is linked above. Mori registry discovery failed on 2026-11-11 because the configured PostgreSQL service refused connections. This plan introduces no new dependency bounds and uses the existing typed Hurl file-root argument; verify unfamiliar filesystem APIs through Mori before implementing them.
+Implementation checkpoint: live CLI coverage passes (44 tests), including exact bytes, concurrent matrix invocations, parameter precedence, inspection without payloads, failure/cancellation ownership, and removal after preflight. Release-copy and schema checks pass. The new public example passes its byte-for-byte cmp check, and the effective-permission CLI check passes as uid 501 on macOS. Full macOS and Apple-container Linux release gates are running. Mori remains unavailable; FRIC-11 records the lookup detour. No dependency version or bound changed.
 
 
 ## Surprises & Discoveries
+
+2026-11-12: The existing fixture echo endpoint already preserves raw request bytes. Live tests capture strict raw bodies directly before responding, so no new production fixture endpoint is needed. Effective permission checks use directory listing plus stat of the directory’s dot entry; both run under the effective identity and include ACL/privilege behavior. Linux root-run release checks use a separate public CLI test that drops to uid 65534.
 
 
 ## Decision Log
