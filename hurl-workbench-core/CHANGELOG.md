@@ -7,26 +7,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Added
-
-- Add per-execution UUID4, UUID7, TypeID, UTC timestamp, and alphanumeric generated parameters with reproducible runtime overrides.
-
-- Ordered multi-service suites with bounded setup/teardown commands and named Stop/Start/Restart
-  barriers between Hurl batches; compatible old manifests and redacted ordered lifecycle results.
-- Process-group cleanup for Hurl and managed commands, including bounded capture cancellation,
-  plus production Rei/Hinagata command/read and lease-release acceptance drivers.
-
-- Compatible suite isolation declarations, with a shared-state default and early refusal of
-  parallel mutation or unclassified suite runs; standalone mutating matrices require serial jobs.
-- Private versioned per-scenario runtime inputs for caller-owned independent suites, with unique
-  fixture/origin assignments, channel/conflict validation, and individually resolved bindings.
-- Safe isolation/scenario summaries for success, refusal, setup failure, and cancellation, plus
-  real two-database Hinagata acceptance covering fail-fast and caller-owned cleanup.
-
-- Explicit inherited or clean environment policies for managed service and readiness commands,
-  with required-name preflight, compatible old manifests, and a caller-owned lease check driver.
-
-## [0.1.0.0] - Unreleased
+## [0.1.0.0] - 2026-11-12
 
 ### Added
 
@@ -39,6 +20,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   preflight, and isolated JUnit, HTML, JSON, and TAP reports.
 - Revision-aware version output and generated Bash, Zsh, and Fish completions.
 - Local vendor-exploration and managed integration-service examples.
+- Per-execution UUID4, UUID7, TypeID, UTC timestamp, and alphanumeric generated parameters with
+  reproducible runtime overrides.
+- Caller-owned Hurl file roots for file bodies, validated before subprocess work and protected from
+  output preparation.
+- Ordered multi-service suites with bounded setup/teardown commands and named Stop/Start/Restart
+  barriers between Hurl batches; compatible old manifests and redacted ordered lifecycle results.
+- Executable checks as ordered suite barriers, with workspace-contained executables, Plain argv
+  templates, bounded process groups, and private captures; checks-only suites with no Hurl cases.
+- Process-group cleanup for Hurl and managed commands, including bounded capture cancellation,
+  plus production Rei/Hinagata command/read and lease-release acceptance drivers.
+- Compatible suite isolation declarations, with a shared-state default and early refusal of
+  parallel mutation or unclassified suite runs; standalone mutating matrices require serial jobs.
+- Private versioned per-scenario runtime inputs for caller-owned independent suites, with unique
+  fixture/origin assignments, channel/conflict validation, and individually resolved bindings.
+- Safe isolation/scenario summaries for success, refusal, setup failure, and cancellation, plus
+  real two-database Hinagata acceptance covering fail-fast and caller-owned cleanup.
+- Explicit inherited or clean environment policies for managed service and readiness commands,
+  with required-name preflight, compatible old manifests, and a caller-owned lease check driver.
+- Local CLI/API parity examples and real application acceptance using executable checks.
 
 ### Security
 
