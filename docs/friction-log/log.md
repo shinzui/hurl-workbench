@@ -2,6 +2,18 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-8 resolved: Eliminate shared cross-platform build metadata and host hook writes from the Linux gate.
+
+
+* **Addition**: FRIC-8 records detour tooling friction with mori://shinzui/hurl-workbench: Linux checks overwrite the macOS Cabal package database
+
+
+* **Update**: FRIC-7 accepted: Keep consumer build repair outside this workbench plan; record the verified cohort and artifact digests.
+
+
+* **Addition**: FRIC-7 records detour tooling friction with mori://shinzui/rei: Rei 9 live fixture fails to link its generated Note owner
+
+
 * **Update**: FRIC-6 resolved: User identified stale shell; registry discovery now succeeds.
 
 

@@ -73,7 +73,7 @@ tests =
           assertStopped directory,
       testCase "second and third readiness failures clean the failing group first" $
         for_ ["s2", "s3"] $ \failed -> fixture $ \directory original -> do
-          workspace <- changed original $ \ws -> ws & #services %~ map (\serviceSpec -> if serviceSpec ^. #name == ServiceName failed then serviceSpec & #readiness .~ CommandReadinessCheck (CommandReadiness (pythonSpec "raise SystemExit(1)") 10 1) else serviceSpec)
+          workspace <- changed original $ \ws -> ws & #services %~ map (\definition -> if definition ^. #name == ServiceName failed then definition & #readiness .~ CommandReadinessCheck (CommandReadiness (pythonSpec "raise SystemExit(1)") 10 1) else definition)
           result <- run directory workspace 1 forbidden
           result ^. #selectedExitCode @?= ExitFailure 4
           events <- lines <$> readFile (directory </> "events")

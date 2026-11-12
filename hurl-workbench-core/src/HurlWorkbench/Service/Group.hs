@@ -25,7 +25,6 @@ import HurlWorkbench.Process.Run
 import HurlWorkbench.Service.Resolve
 import HurlWorkbench.Service.Run (awaitService)
 import HurlWorkbench.Workspace.Types (ServiceName (..), ServiceStep (..))
-import System.Process.Typed (getExitCodeSTM, waitExitCodeSTM)
 
 -- Newest acquisition first, including services still in readiness.
 data Entry = Entry !ResolvedService !OwnedProcess !Bool
@@ -50,7 +49,7 @@ unexpected (ServiceGroup entries) = do
   foldr
     orElse
     retry
-    [ ServiceExitedDuringCallback (service ^. #name) <$> waitExitCodeSTM (owned ^. #process)
+    [ ServiceExitedDuringCallback (service ^. #name) <$> waitExitCodeSTM owned
     | Entry service owned True <- active
     ]
 
@@ -90,7 +89,7 @@ stopNamed (ServiceGroup entries) name = mask $ \_ -> do
     active <- readTVar entries
     -- Check every current leader before retiring the intentional generation.
     exits <- for active $ \(Entry service owned ready) -> do
-      exitCode <- getExitCodeSTM (owned ^. #process)
+      exitCode <- getExitCodeSTM owned
       pure [ServiceExitedDuringCallback (service ^. #name) code | ready, Just code <- [exitCode]]
     case concat exits of
       err : _ -> pure (Left err)

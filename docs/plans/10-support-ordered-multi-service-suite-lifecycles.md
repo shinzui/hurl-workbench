@@ -43,9 +43,9 @@ This implements [IR-1](../improvement-requests/support-several-managed-services-
 - [x] Milestone 1 (2026-11-12): Old manifests, including frozen service-plus-suite records and run unions, remain compatible; all service/phase/transition inputs are preflighted before setup. Core tests and `just schema-check` pass.
 - [x] Milestone 2 (2026-11-12): Ordered startup, bounded phases and reverse acquisition cleanup pass readiness-position failures, partial setup, cancellation and orphan-descendant tests; all owned leaders are reaped.
 - [x] Milestone 3 (2026-11-12): Stop/Start/Restart barriers drain jobs=2 batches, preserve global cases and partial outcomes, retire monitor generations and freeze environments. Redacted summaries retain old fields and add named lifecycle/phase/cleanup outcomes.
-- [ ] Milestone 4: Public CLI examples and real leased-fixture command/read acceptance prove ownership, safety, and release ordering.
+- [x] Milestone 4 (2026-11-12): Public local and actual Rei 8/Hinagata command/read acceptance proves single mutation submission, owner-backed polling, restart, failure/cancellation cleanup and caller release order. Both macOS and Apple-container ARM64 Linux `just check` gates pass (108 core and 38 CLI tests), including package copies, schema compatibility, examples, archives and Nix checks.
 
-Implementation checkpoint (2026-11-12 UTC): the additive schema, narrow compatibility conversion, phase preflight/environment snapshots, process groups, ordered batches/barriers and redacted results are implemented. The public local command/read and jobs=2 read-only barrier driver passes. The macOS `nix develop -c just check` gate passes, including 106 core and 38 CLI tests, schema/release-copy checks, actual examples, source archive builds and Nix checks. Linux and real consumer acceptance are being finalized. Mori discovery works after clearing inherited Home Manager session markers (FRIC-6); it located the Hinagata lease interfaces and Rei production `worker query-projections` owner. Real application/lease acceptance is still in progress; local roles alone do not satisfy AC-7.
+Completion (2026-11-12 UTC): all four milestones are verified. The [sanitized real-consumer evidence](../evidence/10-multi-service-lifecycle.json) records the actual API/query-owner/lease proof, isolation refusal, Clean environment assertions, owned-process cleanup and caller release timestamps. Both native macOS and isolated Apple-container ARM64 Linux release gates pass. The current Rei 9 schema-hook linker failure is outside this workbench change; acceptance explicitly uses the matching Rei 8 binary cohort (FRIC-7, accepted).
 
 
 ## Surprises & Discoveries
@@ -56,8 +56,14 @@ Implementation checkpoint (2026-11-12 UTC): the additive schema, narrow compatib
 2026-11-12: On macOS, signalling an already-disappeared process group can return EPERM rather than ESRCH. Cleanup now observes group disappearance and avoids unnecessary escalation while retaining failures for remaining groups. A descendant fixture verifies KILL still reaches a TERM-ignoring child after leader exit.
 
 
+2026-11-12: Real cancellation exposed a pre-existing Hurl capture deadlock: typed-process closes pipe handles before terminating the writer, and the pipe reader can hold the handle while waiting for output. Hurl capture now uses private temporary files and shares Process.Run group cleanup. A native sleeping-child regression verifies bounded cancellation. This acceptance-driven repair is required for AC-4/AC-5, not a new feature.
+
 ## Decision Log
 
+
+2026-11-12: Real consumer acceptance uses the existing matching Rei 8 binary cohort (CLI source `mori://shinzui/rei/commits/8c5e11258f97b66600ce53269bd9675d9459db52`), whose artifact digests are recorded in the evidence. The attempted current Rei 9 schema hook has unrelated missing generated Note symbols. Keep that consumer build repair outside this plan and explicitly limit the acceptance claim to the verified cohort (FRIC-7, accepted).
+
+2026-11-12: Linux acceptance found that typed-process can reap a fast child before exposing its PID. Acquire through the public process API, capture PID before starting the STM reaper, and add process as a direct dependency using a verified stable range. Add procps to Linux check shells for orphan-state assertions. Linux checks now run a private tracked-tree snapshot so their Cabal package DB and Git hooks cannot overwrite macOS build state.
 
 2026-11-12: Use the live STM membership list as the monitor generation rather than queueing separate per-process monitor events. Intentional stop checks observed leader exits and retires membership atomically; restarted processes create new entries, so stale STM transactions cannot cancel replacements.
 
@@ -76,14 +82,21 @@ Implementation checkpoint (2026-11-12 UTC): the additive schema, narrow compatib
 ## Outcomes & Retrospective
 
 
+2026-11-12: Completed additive version-1 multi-service schemas and compatibility conversion, whole-suite phase/transition/environment preflight, immutable process-group acquisition before reaping, ordered bounded batches and lifecycle barriers, reverse cleanup, bounded phase commands, redacted summaries and public examples. The Hurl capture cancellation repair was necessary to make the real interruption proof bounded. Both macOS and ARM64 Linux release gates pass all 108 core and 38 CLI tests, compatibility fixtures, public examples, source archives and Nix checks. Twenty repeated native environment lifecycles also pass.
+
+The actual Rei 8.0.0.0 API and query-projection owner pass success, readiness failure, unexpected exit and cancellation inside a caller-owned Hinagata lease. Success records one mutation and two owner-backed observations across restart. Cancellation retains the completed submit case and cancels the active read. Every variant finishes reverse cleanup and teardown before the caller releases its clone; private timestamps and Hinagata inspection corroborate release order. Parallel mutation is refused before setup and Clean policy excludes ambient database settings. Artifact digests and sanitized outcomes are retained in [the evidence record](../evidence/10-multi-service-lifecycle.json); reproduction is in [the real consumer README](../../examples/multi-service/rei/README.md). No Rei 9 acceptance is claimed. The conditional executable-Check failure variant remains with [Plan 13](13-run-executable-checks-as-ordered-suite-barriers.md) once that interface exists.
+
+FRIC-6 is resolved by refreshing the shell's inherited Home Manager markers. FRIC-7 is accepted for this plan: the unrelated current Rei 9 generated-symbol link failure stays with its owner, while the existing supported Rei 8 cohort supplies real acceptance. FRIC-8 is resolved: Linux builds use private tracked-tree snapshots, and the macOS package-database fingerprint stays unchanged during the full Linux gate. Durable schema, ownership, capture and reporting decisions are distilled into ADRs 1, 4, 6 and 7.
+
+
 ## Context and Orientation
 
 
-A workspace is the Dhall manifest plus fragment files beneath its directory. `schema/Suite.dhall` currently has one optional `service`, a list of runs, and fail-fast configuration. `schema/RunReference.dhall` permits workflows, recipes, and matrices. `hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` mirrors these declarations; `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` performs version checking and exact typed decoding. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates references and contained working directories.
+A workspace is the Dhall manifest plus fragment files beneath its directory. `schema/Suite.dhall` now has ordered services, phase commands, finite budgets and lifecycle-aware runs, while retaining optional `service` sugar. `schema/RunReference.dhall` permits workflows, recipes, and matrices. `hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` mirrors these declarations; `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` performs version checking and exact typed decoding. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates references and contained working directories.
 
-`hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` flattens every run into `PreparedSuite.cases`, resolves one `managedService`, and prepares report directories. `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` runs one `runBatchObserved` callback inside `withService` and writes an atomic summary. This flattening loses lifecycle boundaries, so it must become an ordered execution sequence while retaining stable case identities and partial results.
+`hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` keeps global cases and report stems while preparing ordered Hurl batches and lifecycle barriers. It resolves all services, phase commands and environments before setup. `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` executes that sequence through `runBatchObserved`, retains partial outcomes, finalizes service/phase ownership and writes an atomic redacted summary.
 
-`hurl-workbench-core/src/HurlWorkbench/Service/Resolve.hs` resolves explicit environment bindings and readiness URLs from suite-level values. `hurl-workbench-core/src/HurlWorkbench/Service/Run.hs` owns one POSIX process group, the service leader and its descendants signalled together, through `withService`. Its callback races leader exit. It is insufficient to nest this interface for restarts: an intentional stop would look like unexpected death, and cleanup can currently replace the earlier error. `hurl-workbench-core/src/HurlWorkbench/Run/Batch.hs` supplies bounded workers and observed case completion.
+`hurl-workbench-core/src/HurlWorkbench/Service/Resolve.hs` resolves explicit environment bindings and readiness URLs from suite-level values. `hurl-workbench-core/src/HurlWorkbench/Process/Run.hs` captures each POSIX group ID before starting its STM reaper. `hurl-workbench-core/src/HurlWorkbench/Service/Group.hs` owns the acquisition stack and dynamic monitor generations. `hurl-workbench-core/src/HurlWorkbench/Service/Run.hs` supplies readiness and the single-service compatibility wrapper. Intentional stop retires membership atomically; cleanup diagnostics do not replace the primary cause. `hurl-workbench-core/src/HurlWorkbench/Run/Batch.hs` supplies bounded workers and observed case completion.
 
 Extend the existing tests in `hurl-workbench-core/test/HurlWorkbench/Workspace/WorkspaceTest.hs`, `hurl-workbench-core/test/HurlWorkbench/Service/RunTest.hs`, `hurl-workbench-core/test/HurlWorkbench/Suite/RunTest.hs`, and `hurl-workbench-cli/test/Main.hs`. The CLI fixture implementation is `hurl-workbench-cli/test/fixture-server/FixtureServer.hs`, with its executable entry point in `hurl-workbench-cli/test/fixture-server/Main.hs`.
 
@@ -173,6 +186,19 @@ bash scripts/check-multi-service-lease.sh
 Expect one accepted mutation, successful bounded read observation, reverse shutdown, and caller release after the last consumer exit. Do not mark the real-lease check passed merely because a fake service example passes.
 
 
+The verified caller invocation, using matching built consumer artifacts identified by digest in the evidence record, is:
+
+```bash
+export hinagata_postgres_datadir="$(mori path mori://shinzui/hinagata)/hinagata-postgres"
+nix develop -c python3 scripts/check-rei-multi-service.py \
+  --api "$REI_API_EXECUTABLE" --rei "$REI_CLI_EXECUTABLE" \
+  --schema-hook "$REI_LIVE_TEST_EXECUTABLE" --hinagata "$HINAGATA_EXECUTABLE" \
+  --workbench "$HURL_WORKBENCH_EXECUTABLE" --evidence-root /tmp/new-rei-lifecycle-evidence
+```
+
+The caller creates a disposable authenticated cluster, obtains a Hinagata clone, invokes the already-leased driver and releases only after every consumer PID is gone. Its actual consumer is `mori://shinzui/rei` version 8.0.0.0; the CLI reports source `mori://shinzui/rei/commits/8c5e11258f97b66600ce53269bd9675d9459db52`. The provider checkout is `mori://shinzui/hinagata/commits/a0c1059743e5957e66e4b8cee9e485ad89471937`. The README explains executable discovery and the current Rei 9 build limitation. Expect `production Rei command/read, worker restart, failure/cancellation and caller lease release: PASS`.
+
+
 ## Validation and Acceptance
 
 
@@ -194,4 +220,6 @@ Fixtures use unique temporary workspaces, ports, marker files, and report roots.
 
 The public contract is additive Suite fields plus `RunReference.Service`. Internally, `PreparedSuite` owns an ordered sequence and resolved phase commands; `Service.Group` owns live process handles and monitor generations; `SuiteResult` separates primary execution failure from cleanup diagnostics. IR-4 extends this sequence with checks rather than re-flattening it. IR-2 generated parameters remain per Hurl execution and cannot become shared service configuration. IR-3 contributes one validated body-file root to each prepared Hurl request without changing fragment resolution.
 
-Use existing `async`, `stm`, `typed-process`, `unix`, and HTTP readiness dependencies; this plan chooses no new package bounds. Before using unfamiliar APIs, run `mori registry list`, `mori registry search typed-process`, and `mori registry search dhall`, then `mori registry show <qualified-project> --full` and `mori registry docs <qualified-project>` using discovered owners. Read the source paths returned. If a dependency change becomes necessary, verify released versions in its authoritative registry and upstream tags before changing Cabal/Nix bounds. Registry failure is a recorded research prerequisite, not evidence of API compatibility.
+Use existing `async`, `stm`, `typed-process`, `unix`, and HTTP readiness dependencies, plus a direct `process >=1.6.3 && <1.7` dependency from `mori://haskell/process/packages/process` for race-free acquisition. Registry/upstream checks on 2026-11-12 confirmed 1.6.30.0 is released; the range includes both tested toolchain 1.6.26.1 and that current release. No dependency pin or cohort upgrade is introduced. Before using unfamiliar APIs, run `mori registry list`, `mori registry search typed-process`, and `mori registry search dhall`, then `mori registry show <qualified-project> --full` and `mori registry docs <qualified-project>` using discovered owners. Read the source paths returned. If a dependency change becomes necessary, verify released versions in its authoritative registry and upstream tags before changing Cabal/Nix bounds. Registry failure is a recorded research prerequisite, not evidence of API compatibility.
+
+Revision note (2026-11-12): Implementation and real/platform acceptance exposed pipe-capture cancellation, fast-child PID acquisition and shared cross-platform Cabal state defects. The plan now records the necessary repairs, one verified direct process dependency, isolated Linux validation and the explicitly scoped real consumer cohort; the original user-visible lifecycle acceptance is preserved.

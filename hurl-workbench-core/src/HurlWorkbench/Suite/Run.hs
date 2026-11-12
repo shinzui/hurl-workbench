@@ -51,6 +51,7 @@ import System.Posix.Files
     unionFileModes,
   )
 import System.Posix.Types (FileMode)
+import System.Timeout qualified as Timeout
 
 data ServiceOutcome
   = ServiceStopped
@@ -242,7 +243,13 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
           cleanupErrors
   summary <- case prepared ^. #metadata . #summaryPath of
     Nothing -> pure (Right Nothing)
-    Just path -> writeSummary path (summaryValueWithStatus (if cancelled then "cancelled" else exitStatus exitCode) (prepared ^. #metadata) provisional) <&> fmap (const (Just path))
+    Just path -> do
+      let write = writeSummary path (summaryValueWithStatus (if cancelled then "cancelled" else exitStatus exitCode) (prepared ^. #metadata) provisional)
+      written <-
+        if cancelled
+          then fromMaybe (Left "suite summary write timed out") <$> Timeout.timeout 1000000 write
+          else write
+      pure (Just path <$ written)
   let finished = case summary of
         Right path -> provisional & #summaryPath .~ path
         Left message -> provisional & #summaryError .~ Just message & #selectedExitCode .~ (if exitCode == ExitFailure 4 then exitCode else ExitFailure 3)

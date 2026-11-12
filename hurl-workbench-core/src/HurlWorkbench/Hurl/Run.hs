@@ -20,11 +20,9 @@ module HurlWorkbench.Hurl.Run
   )
 where
 
-import Control.Concurrent.STM (atomically)
-import Control.Exception (IOException, displayException, finally, onException, try)
+import Control.Exception (IOException, SomeException, displayException, mask, onException, throwIO, try)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as ByteString
-import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Generics.Labels ()
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
@@ -35,13 +33,14 @@ import HurlWorkbench.Hurl.Capabilities
 import HurlWorkbench.Parameter.Resolve (ResolvedBindings (..))
 import HurlWorkbench.Parameter.Resolve.Internal (secretValueText)
 import HurlWorkbench.Prelude
+import HurlWorkbench.Process.Run
 import HurlWorkbench.Workflow.Render
 import HurlWorkbench.Workspace.Types
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, removeFile)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode)
 import System.FilePath (takeDirectory)
-import System.IO (hClose, hFlush)
+import System.IO (IOMode (WriteMode), hClose, hFlush, withBinaryFile)
 import System.IO.Temp (openBinaryTempFile, withSystemTempDirectory)
 import System.Posix.Files
   ( accessModes,
@@ -55,20 +54,7 @@ import System.Posix.Files
   )
 import System.Posix.IO (OpenFileFlags (..), OpenMode (WriteOnly), defaultFileFlags, fdToHandle, openFd)
 import System.Posix.Types (FileMode)
-import System.Process.Typed
-  ( byteStringOutput,
-    closed,
-    getStderr,
-    getStdout,
-    proc,
-    setEnv,
-    setStderr,
-    setStdin,
-    setStdout,
-    startProcess,
-    stopProcess,
-    waitExitCode,
-  )
+import System.Process qualified as Process
 
 data HurlRunMode = ClientMode | TestMode
   deriving stock (Generic, Eq, Show)
@@ -197,7 +183,7 @@ prepareAndRun capabilities request directory = do
   traverse_ prepareSecureFile (request ^. #options . #curlExportPath)
   environment <- filter (not . Text.isPrefixOf "HURL_" . Text.pack . fst) <$> getEnvironment
   let arguments = buildArguments request renderedPath variablesPath secretsPath
-  spawn capabilities request environment arguments
+  spawn capabilities request environment arguments directory
   where
     renderVariable name value = unParameterName name <> "=" <> hurlValueLiteralText value
     renderSecret name value = unParameterName name <> "=" <> secretValueText value
@@ -266,50 +252,40 @@ secureFileMode = ownerReadMode `unionFileModes` ownerWriteMode
 secureDirectoryMode :: FileMode
 secureDirectoryMode = secureFileMode `unionFileModes` ownerExecuteMode
 
-spawn :: HurlCapabilities -> RunRequest -> [(String, String)] -> [String] -> IO (Either RunStartError RunResult)
-spawn capabilities request environment arguments = case request ^. #outputPolicy of
-  InheritRunOutput -> do
-    let config = setEnv environment (proc (capabilities ^. #hurlExecutable) arguments)
-    started <- try @IOException (startProcess config)
-    case started of
-      Left err -> pure (Left (HurlSpawnFailed (capabilities ^. #hurlExecutable) (Text.pack (displayException err))))
-      Right process -> do
-        began <- getCurrentTime
-        exit <- waitExitCode process `finally` stopProcess process
-        ended <- getCurrentTime
-        pure (Right (RunResult exit (diffUTCTime ended began) Nothing))
-  CaptureRunOutput -> spawnCaptured
-  ResponseFile _path -> spawnCaptured
+-- Private files avoid closing a live output pipe before signalling its writer.
+-- That pipe-close ordering can block cancellation inside typed-process cleanup.
+spawn :: HurlCapabilities -> RunRequest -> [(String, String)] -> [String] -> FilePath -> IO (Either RunStartError RunResult)
+spawn capabilities request environment arguments directory = case request ^. #outputPolicy of
+  InheritRunOutput -> runOwned config
+  CaptureRunOutput -> capture
+  ResponseFile _ -> capture
   where
-    spawnCaptured = do
-      let config =
-            setStdin closed
-              . setStdout byteStringOutput
-              . setStderr byteStringOutput
-              . setEnv environment
-              $ proc (capabilities ^. #hurlExecutable) arguments
-      started <- try @IOException (startProcess config)
-      case started of
-        Left err -> pure (Left (HurlSpawnFailed (capabilities ^. #hurlExecutable) (Text.pack (displayException err))))
-        Right process -> do
-          began <- getCurrentTime
-          (exit, stdout, stderr) <-
-            ( do
-                exit <- waitExitCode process
-                stdout <- atomically (getStdout process)
-                stderr <- atomically (getStderr process)
-                pure (exit, stdout, stderr)
-            )
-              `finally` stopProcess process
+    config = (Process.proc (capabilities ^. #hurlExecutable) arguments) {Process.env = Just environment, Process.create_group = True}
+    runOwned processConfig = mask $ \restore -> do
+      began <- getCurrentTime
+      spawnGroup (ServiceName "hurl") processConfig >>= \case
+        Left _ -> pure (Left (HurlSpawnFailed (capabilities ^. #hurlExecutable) "process launch failed"))
+        Right owned -> do
+          execution <- try @SomeException (restore (waitExitCode owned))
+          cleanup <- terminateGroup (ServiceName "hurl") 2 owned
           ended <- getCurrentTime
-          pure
-            ( Right
-                ( RunResult
-                    exit
-                    (diffUTCTime ended began)
-                    (Just (CapturedRunOutput (LazyByteString.toStrict stdout) (LazyByteString.toStrict stderr)))
-                )
-            )
+          case execution of
+            Left err -> throwIO err
+            Right exit -> pure $ case cleanup of
+              Left _ -> Left (SecureRunFileError "Hurl process group" "cleanup failed")
+              Right () -> Right (RunResult exit (diffUTCTime ended began) Nothing)
+    capture = do
+      stdoutPath <- writeSecureTemporary directory "stdout" ""
+      stderrPath <- writeSecureTemporary directory "stderr" ""
+      result <- withBinaryFile stdoutPath WriteMode $ \stdout ->
+        withBinaryFile stderrPath WriteMode $ \stderr ->
+          runOwned config {Process.std_in = Process.NoStream, Process.std_out = Process.UseHandle stdout, Process.std_err = Process.UseHandle stderr}
+      case result of
+        Left err -> pure (Left err)
+        Right finished -> do
+          stdout <- ByteString.readFile stdoutPath
+          stderr <- ByteString.readFile stderrPath
+          pure (Right (finished & #capturedOutput .~ Just (CapturedRunOutput stdout stderr)))
 
 buildArguments :: RunRequest -> FilePath -> Maybe FilePath -> Maybe FilePath -> [String]
 buildArguments request renderedPath variablesPath secretsPath =

@@ -350,3 +350,12 @@ existing lease and follow its [consumer evidence contract](../../examples/multi-
 The driver checks success, readiness failure, unexpected exit and cancellation,
 and confirms consumer PIDs have stopped. The caller releases the database only
 after the driver returns and records that provider-side release evidence.
+
+The optional [production Rei fixture](../../examples/multi-service/rei/README.md)
+uses the actual API and `worker query-projections` owner with an independent
+static Topic anchor. Its caller prepares a Hinagata baseline through Rei's existing
+schema hooks and allocates a clone; the observed Note is submitted once through
+HTTP and appears through the real asynchronous owner. The four-mode driver
+requires clean managed environments and refuses jobs=2 mutation before setup.
+The verified cohort is Rei 8.0.0.0 (`8c5e112`); current Rei 9 schema-hook linking
+is tracked as FRIC-7 and is not claimed as accepted by this proof.

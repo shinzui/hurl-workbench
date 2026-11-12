@@ -36,11 +36,6 @@ import Network.HTTP.Types.Status (statusCode)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.Posix.Types (ProcessID)
-import System.Process.Typed
-  ( Process,
-    getExitCode,
-    waitExitCode,
-  )
 import System.Timeout qualified as Timeout
 
 data ServiceHandle = ServiceHandle
@@ -71,7 +66,7 @@ withService service callback = mask $ \restore -> do
       spawnGroup (service ^. #name) (commandConfig command) >>= \case
         Left err -> pure (Left err)
         Right owned -> do
-          execution <- try @SomeException (restore (runLifecycle service readiness (owned ^. #process) (owned ^. #processId) callback))
+          execution <- try @SomeException (restore (runLifecycle service readiness owned (owned ^. #processId) callback))
           shutdown <- terminateGroup (service ^. #name) (service ^. #shutdownTimeout) owned
           case execution of
             Left exception -> throwIO exception
@@ -83,9 +78,9 @@ awaitService service owned = do
   prepared <- prepareReadiness [] (service ^. #name) (service ^. #readiness)
   case prepared of
     Left err -> pure (Left err)
-    Right readiness -> awaitReadiness service readiness (owned ^. #process)
+    Right readiness -> awaitReadiness service readiness owned
 
-runLifecycle :: ResolvedService -> PreparedReadiness -> Process () () () -> ProcessID -> (ServiceHandle -> IO a) -> IO (Either ServiceError a)
+runLifecycle :: ResolvedService -> PreparedReadiness -> OwnedProcess -> ProcessID -> (ServiceHandle -> IO a) -> IO (Either ServiceError a)
 runLifecycle service readiness process pid callback =
   awaitReadiness service readiness process >>= \case
     Left err -> pure (Left err)
@@ -136,7 +131,7 @@ freezeService ambient service = case prepareCommand ambient (service ^. #name) "
               PreparedHttpReadiness {} -> service ^. #readiness
         )
 
-awaitReadiness :: ResolvedService -> PreparedReadiness -> Process () () () -> IO (Either ServiceError ())
+awaitReadiness :: ResolvedService -> PreparedReadiness -> OwnedProcess -> IO (Either ServiceError ())
 awaitReadiness service readiness process = do
   began <- getCurrentTime
   let deadline = addUTCTime (readinessTimeout readiness) began
@@ -168,7 +163,7 @@ probeReadiness (PreparedCommandReadiness command _interval timeout) = mask $ \re
   spawnGroup (ServiceName "readiness") (commandConfig command) >>= \case
     Left _ -> pure (Left (ServiceReadinessProbeStartFailed "<redacted>" "process launch failed"))
     Right owned -> do
-      exitCode <- restore (waitExitCode (owned ^. #process)) `finally` void (terminateGroup (ServiceName "readiness") (min 1 timeout) owned)
+      exitCode <- restore (waitExitCode owned) `finally` void (terminateGroup (ServiceName "readiness") (min 1 timeout) owned)
       pure (Right (exitCode == ExitSuccess))
 
 readinessInterval :: PreparedReadiness -> Int

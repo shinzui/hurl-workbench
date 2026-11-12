@@ -9,6 +9,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Ordered multi-service suites with bounded setup/teardown commands and named Stop/Start/Restart
+  barriers between Hurl batches; compatible old manifests and redacted ordered lifecycle results.
+- Process-group cleanup for Hurl and managed commands, including bounded capture cancellation,
+  plus production Rei/Hinagata command/read and lease-release acceptance drivers.
+
 - Compatible suite isolation declarations, with a shared-state default and early refusal of
   parallel mutation or unclassified suite runs; standalone mutating matrices require serial jobs.
 - Private versioned per-scenario runtime inputs for caller-owned independent suites, with unique

@@ -27,7 +27,7 @@ application projection behavior or lease release. The lease provider is
 Rei exposes `rei worker query-projections` for its production Note/assignment/
 definition owners, alongside the production `rei-api` executable. Its live-test
 executable has `--hinagata-schema` and `--hinagata-verify` hooks for isolated
-baselines. This example makes no real-consumer acceptance claim.
+baselines. The optional [production Rei consumer](rei/README.md) and its separate caller harness provide real application/lease acceptance.
 
 The opt-in `scripts/check-multi-service-lease.sh` runs **inside an already active
 caller lease**. Supply absolute `HURL_WORKBENCH_CONSUMER_WORKSPACE`, the
@@ -46,7 +46,7 @@ of all owned leader/descendant PIDs and appends complete JSON lines to
 worker restart in the workbench summary. Cancellation records
 `{"event":"cancel-ready"}` only while execution is active. Teardown's last event
 is `{"event":"consumers-stopped"}` after confirming the real API/stub/owner have
-stopped. The driver checks every PID and preserves private reports. The caller
+stopped. The driver rejects jobs=2 mutation before setup, checks every PID and preserves private reports. The caller
 then releases its lease and records provider evidence proving release followed
 consumer shutdown. Use fresh isolated fixtures for each retry; teardown must
 handle partially completed setup.

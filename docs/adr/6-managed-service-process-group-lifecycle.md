@@ -88,3 +88,12 @@ reverse cleanup precedes bounded teardown, including failure and cancellation.
 All managed consumers freeze the environment and parameter-environment channels
 from one preflight snapshot. Resolved commands redact argv and paths as well as
 environment values. withService remains a compatibility wrapper.
+
+Linux fast-child acceptance exposed a PID acquisition race in typed-process: its
+waiter can reap a child before `getPid` reads the handle. Process.Run now uses the
+public acquisition API from `mori://haskell/process/packages/process`, captures the group ID before starting its one
+reaper, and publishes completion through STM. No detached waiter can remove the
+identity before ownership registration. The direct process dependency uses stable
+public APIs; Hackage and upstream tags were checked through 1.6.30.0 before
+selecting the inclusive 1.6 range. Other adapters retain typed-process where no
+ownership transfer is required.

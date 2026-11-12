@@ -1,6 +1,9 @@
 module HurlWorkbench.Hurl.RunTest (tests) where
 
-import Control.Exception (bracket)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (cancel, replicateConcurrently_, waitCatch, withAsync)
+import Control.Exception (IOException, bracket, try)
+import Control.Monad (replicateM_)
 import Data.Bits ((.&.))
 import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.Generics.Labels ()
@@ -31,7 +34,9 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (accessModes, fileMode, getFileStatus)
+import System.Posix.Signals (nullSignal, signalProcess)
 import System.Posix.Types (FileMode)
+import System.Timeout qualified as Timeout
 import Test.Tasty (TestTree, inOrderTestGroup, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -51,7 +56,35 @@ capabilityTests =
 
 runnerTests :: [TestTree]
 runnerTests =
-  [ testCase "constructs secure argv, filters HURL environment, captures output, and cleans temporary files" $
+  [ testCase "short-lived parallel children retain their real exit statuses" $
+      withSystemTempDirectory "hurl-fast-exit" $ \dir -> do
+        let executable = dir </> "instant-hurl"
+        writeFile executable "#!/bin/sh\nexit 7\n"
+        permissions <- getPermissions executable
+        setPermissions executable (setOwnerExecutable True permissions)
+        rendered <- renderedFixture dir
+        replicateConcurrently_ 4 $
+          replicateM_ 12 $
+            runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest rendered) >>= \case
+              Right result -> result ^. #exitCode @?= ExitFailure 7
+              Left err -> assertFailure (Text.unpack (renderRunStartError err)),
+    testCase "cancellation of a live captured Hurl process is bounded and reaps its group" $
+      withSystemTempDirectory "hurl-cancel-capture" $ \dir -> do
+        let executable = dir </> "blocked-hurl"
+            marker = dir </> "running"
+        writeFile executable ("#!/usr/bin/env python3\nimport os, sys, time\nsys.stdout.write('private stdout\\n'); sys.stdout.flush()\nsys.stderr.write('private stderr\\n'); sys.stderr.flush()\nopen(" <> show marker <> ", 'w').write(str(os.getpid()))\ntime.sleep(60)\n")
+        permissions <- getPermissions executable
+        setPermissions executable (setOwnerExecutable True permissions)
+        rendered <- renderedFixture dir
+        let waitStarted = doesFileExist marker >>= \ready -> unless ready (threadDelay 10000 >> waitStarted)
+        withAsync (runHurl (mkHurlRunner (capabilities executable (makeVersion [8, 0, 1]))) (baseRequest rendered)) $ \worker -> do
+          Timeout.timeout 3000000 waitStarted >>= maybe (assertFailure "Hurl did not start") pure
+          Timeout.timeout 4000000 (cancel worker) >>= maybe (assertFailure "capture cleanup blocked on a live pipe") pure
+          waitCatch worker >>= \case Left _ -> pure (); Right _ -> assertFailure "cancelled Hurl returned normally"
+        pid <- read <$> readFile marker
+        alive <- try @IOException (signalProcess nullSignal pid)
+        assertBool "Hurl was reaped" (either (const True) (const False) alive),
+    testCase "constructs secure argv, filters HURL environment, captures output, and cleans temporary files" $
       withSystemTempDirectory "hurl-workbench-run-test" $ \dir -> do
         executable <- writeFakeHurl dir
         rendered <- renderedFixture dir

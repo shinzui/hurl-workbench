@@ -63,3 +63,19 @@ to stdout, and Hurl documents that its secret redaction does not cover response 
 not run untrusted requests with credentials. The initial adapter supports macOS and Linux because
 it enforces POSIX permissions; another platform needs an equally tested secure-file abstraction
 before it can be supported.
+
+## Bounded captured-process cancellation (2026-11-12)
+
+Real leased-consumer acceptance in [Plan 10](../plans/10-support-ordered-multi-service-suite-lifecycles.md)
+exposed a pipe-cleanup deadlock: typed-process closes its capture pipe handles
+before terminating the process, while a reader can hold the handle waiting for
+that live writer. Captured Hurl stdout/stderr now use separate 0600 temporary
+files inside the bracketed private execution directory. Results retain the same
+captured byte channels. The files are read only after the child group is stopped
+and reaped, then removed with the other temporary inputs.
+
+Hurl starts in its own POSIX process group and shares Process.Run's bounded
+TERM/KILL and reaping primitive. Ownership is established under masking before
+execution becomes interruptible. Cleanup precedes exception propagation and
+capture finalization; leader exit does not prove descendant termination. This
+applies to inherited-output execution as well, preserving its inherited streams.

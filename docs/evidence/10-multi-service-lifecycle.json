@@ -1,0 +1,683 @@
+{
+  "recordedAt": "2026-11-12T05:23:24.732254+00:00",
+  "plan": "docs/plans/10-support-ordered-multi-service-suite-lifecycles.md",
+  "provider": {
+    "project": "mori://shinzui/hinagata",
+    "source": "mori://shinzui/hinagata/commits/a0c1059743e5957e66e4b8cee9e485ad89471937"
+  },
+  "consumer": {
+    "project": "mori://shinzui/rei",
+    "version": "8.0.0.0",
+    "cliSource": "mori://shinzui/rei/commits/8c5e11258f97b66600ce53269bd9675d9459db52",
+    "artifactSha256": {
+      "api": "ab17dca4bbcaffba3c208ea15a71f5e64702ff006651a89006eefeced3cb228f",
+      "cli": "1ed16aea8704564f790728df158418623080f4485f64e61acf7917805fee2ea5",
+      "schemaHook": "2ff95770918cd6a2b905719ba01092a13cdb7ce6103ff48b750d8f30e8219b19"
+    },
+    "currentRei9Acceptance": false,
+    "currentRei9Limitation": "FRIC-7"
+  },
+  "isolationRefusal": {
+    "status": "refused",
+    "reasonCodes": [
+      "shared-state-parallel-unsafe"
+    ],
+    "beforeSetup": true
+  },
+  "cleanEnvironmentAssertions": true,
+  "summarySecretSentinelAbsent": true,
+  "variants": {
+    "success": {
+      "status": "passed",
+      "primaryFailure": null,
+      "cases": [
+        "passed",
+        "passed"
+      ],
+      "steps": [
+        {
+          "kind": "hurl",
+          "name": "submit",
+          "status": "passed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0.154929,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "kind": "hurl",
+          "name": "after",
+          "status": "passed"
+        }
+      ],
+      "services": [
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007352,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.048699,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007294,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.156938,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007547,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.121911,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "stop",
+          "artifacts": [],
+          "elapsedSeconds": 0.024166,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.006876,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.123816,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0.154929,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.03621,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.022627,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.012089,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        }
+      ],
+      "phases": [
+        {
+          "artifacts": [
+            "phases/setup/0/stdout",
+            "phases/setup/0/stderr"
+          ],
+          "elapsedSeconds": 0.054351,
+          "index": 0,
+          "phase": "setup",
+          "status": "passed"
+        },
+        {
+          "artifacts": [
+            "phases/teardown/0/stdout",
+            "phases/teardown/0/stderr"
+          ],
+          "elapsedSeconds": 0.052265,
+          "index": 0,
+          "phase": "teardown",
+          "status": "passed"
+        }
+      ],
+      "eventCounts": {
+        "setup": 1,
+        "start": 4,
+        "mutation": 1,
+        "observation": 2,
+        "stop": 4,
+        "consumers-stopped": 1
+      },
+      "ownedProcessesStopped": true
+    },
+    "readiness-failure": {
+      "status": "failed",
+      "primaryFailure": "service-failed",
+      "cases": [
+        "skipped-prerequisite-failed",
+        "skipped-prerequisite-failed"
+      ],
+      "steps": [
+        {
+          "kind": "hurl",
+          "name": "submit",
+          "status": "skipped-prerequisite-failed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0,
+          "kind": "service",
+          "name": "worker",
+          "status": "skipped"
+        },
+        {
+          "kind": "hurl",
+          "name": "after",
+          "status": "skipped-prerequisite-failed"
+        }
+      ],
+      "services": [
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007342,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.048587,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007791,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.152548,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007359,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 3.013547,
+          "kind": "service",
+          "name": "worker",
+          "status": "failed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0,
+          "kind": "service",
+          "name": "worker",
+          "status": "skipped"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.033722,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.036273,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.010999,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        }
+      ],
+      "phases": [
+        {
+          "artifacts": [
+            "phases/setup/0/stdout",
+            "phases/setup/0/stderr"
+          ],
+          "elapsedSeconds": 0.054515,
+          "index": 0,
+          "phase": "setup",
+          "status": "passed"
+        },
+        {
+          "artifacts": [
+            "phases/teardown/0/stdout",
+            "phases/teardown/0/stderr"
+          ],
+          "elapsedSeconds": 0.051823,
+          "index": 0,
+          "phase": "teardown",
+          "status": "passed"
+        }
+      ],
+      "eventCounts": {
+        "setup": 1,
+        "start": 3,
+        "stop": 3,
+        "consumers-stopped": 1
+      },
+      "ownedProcessesStopped": true
+    },
+    "unexpected-exit": {
+      "status": "failed",
+      "primaryFailure": "service-failed",
+      "cases": [
+        "passed",
+        "skipped-prerequisite-failed"
+      ],
+      "steps": [
+        {
+          "kind": "hurl",
+          "name": "submit",
+          "status": "passed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0.167545,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "kind": "hurl",
+          "name": "after",
+          "status": "skipped-prerequisite-failed"
+        }
+      ],
+      "services": [
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007265,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.048631,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007335,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.157007,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.008017,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.123438,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "stop",
+          "artifacts": [],
+          "elapsedSeconds": 0.03462,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.00765,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.12519,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0.167545,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 1.4e-05,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.02199,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.011056,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        }
+      ],
+      "phases": [
+        {
+          "artifacts": [
+            "phases/setup/0/stdout",
+            "phases/setup/0/stderr"
+          ],
+          "elapsedSeconds": 0.056518,
+          "index": 0,
+          "phase": "setup",
+          "status": "passed"
+        },
+        {
+          "artifacts": [
+            "phases/teardown/0/stdout",
+            "phases/teardown/0/stderr"
+          ],
+          "elapsedSeconds": 0.053503,
+          "index": 0,
+          "phase": "teardown",
+          "status": "passed"
+        }
+      ],
+      "eventCounts": {
+        "setup": 1,
+        "start": 4,
+        "mutation": 1,
+        "observation": 1,
+        "stop": 4,
+        "consumers-stopped": 1
+      },
+      "ownedProcessesStopped": true
+    },
+    "cancellation": {
+      "status": "cancelled",
+      "primaryFailure": null,
+      "cases": [
+        "passed",
+        "cancelled"
+      ],
+      "steps": [
+        {
+          "kind": "hurl",
+          "name": "submit",
+          "status": "passed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0.161925,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "kind": "hurl",
+          "name": "after",
+          "status": "cancelled"
+        }
+      ],
+      "services": [
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007313,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.047889,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007683,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.157832,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007723,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.125008,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "stop",
+          "artifacts": [],
+          "elapsedSeconds": 0.022825,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "start",
+          "artifacts": [],
+          "elapsedSeconds": 0.007539,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "readiness",
+          "artifacts": [],
+          "elapsedSeconds": 0.131485,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "restart",
+          "artifacts": [],
+          "elapsedSeconds": 0.161925,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.034573,
+          "kind": "service",
+          "name": "worker",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.034545,
+          "kind": "service",
+          "name": "api",
+          "status": "passed"
+        },
+        {
+          "action": "cleanup",
+          "artifacts": [],
+          "elapsedSeconds": 0.010771,
+          "kind": "service",
+          "name": "stub",
+          "status": "passed"
+        }
+      ],
+      "phases": [
+        {
+          "artifacts": [
+            "phases/setup/0/stdout",
+            "phases/setup/0/stderr"
+          ],
+          "elapsedSeconds": 0.056956,
+          "index": 0,
+          "phase": "setup",
+          "status": "passed"
+        },
+        {
+          "artifacts": [
+            "phases/teardown/0/stdout",
+            "phases/teardown/0/stderr"
+          ],
+          "elapsedSeconds": 0.054193,
+          "index": 0,
+          "phase": "teardown",
+          "status": "passed"
+        }
+      ],
+      "eventCounts": {
+        "setup": 1,
+        "start": 4,
+        "mutation": 1,
+        "observation": 1,
+        "stop": 4,
+        "cancel-ready": 1,
+        "consumers-stopped": 1
+      },
+      "ownedProcessesStopped": true
+    }
+  },
+  "callerRelease": {
+    "status": "Released",
+    "consumersStoppedAt": 1794460935655059000,
+    "releasedAt": 1794460936055194000,
+    "ordering": "all four consumer scopes stopped before caller release"
+  },
+  "workbenchAcquisition": "capture process-group ID before starting the STM reaper",
+  "nativeChecks": {
+    "coreTests": 108,
+    "cliTests": 38,
+    "repeatedEnvironmentLifecycles": 20
+  },
+  "releaseGates": {
+    "aarch64-darwin": "just check: PASS",
+    "aarch64-linux": "Apple container just check: PASS",
+    "nativePackageDatabaseUnchangedByLinux": true
+  }
+}

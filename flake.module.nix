@@ -27,7 +27,7 @@
         pkgs.hurl
         pkgs.python3
         pkgs.ripgrep
-      ];
+      ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.procps;
 
       # Release checks need the pinned compiler and CLI tools, while the editor
       # language server adds a large unrelated source build on fresh Linux hosts.
@@ -42,7 +42,7 @@
           pkgs.hurl
           pkgs.python3
           pkgs.ripgrep
-        ];
+        ] ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.procps;
       };
 
       packages.hurl-workbench-core = corePackage;

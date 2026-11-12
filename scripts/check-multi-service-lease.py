@@ -33,10 +33,17 @@ for variant in ["success", "readiness-failure", "unexpected-exit", "cancellation
     variables = env.get("HURL_WORKBENCH_CONSUMER_VARIABLES_FILE")
     if variables:
         command += ["--variables-file", variables]
+    if variant == "success":
+        unsafe = command.copy()
+        unsafe[unsafe.index("--jobs") + 1] = "2"
+        unsafe[unsafe.index("--report-dir") + 1] = str(evidence / "refused-reports")
+        refused = subprocess.run(unsafe, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+        assert refused.returncode == 2 and b"shared-state-parallel-unsafe" in refused.stderr
+        assert not (evidence / "events.jsonl").exists(), "isolation refusal must precede setup"
     log = evidence / "driver.log"
     with log.open("xb") as output:
         log.chmod(0o600)
-        process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output)
+        process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output, start_new_session=True)
         try:
             if variant == "cancellation":
                 deadline = time.monotonic() + 60
@@ -52,7 +59,12 @@ for variant in ["success", "readiness-failure", "unexpected-exit", "cancellation
                 process.wait(timeout=45)
     expected = {0} if variant == "success" else ({-signal.SIGINT, 130} if variant == "cancellation" else {4})
     assert status in expected, f"{variant}: unexpected exit {status}; see private driver.log"
-    summary = json.loads((evidence / "reports" / suite / "summary.json").read_text())
+    raw_summary = (evidence / "reports" / suite / "summary.json").read_text()
+    assert str(evidence) not in raw_summary and str(workspace) not in raw_summary
+    sentinel = env.get("HURL_WORKBENCH_CONSUMER_SECRET_SENTINEL")
+    if sentinel:
+        assert sentinel not in raw_summary
+    summary = json.loads(raw_summary)
     rows = events(evidence / "events.jsonl")
     mutations = [row for row in rows if row["event"] == "mutation"]
     observations = [row for row in rows if row["event"] == "observation"]
