@@ -56,7 +56,14 @@ parserTests :: TestTree
 parserTests =
   testGroup
     "parser"
-    [ testCase "validate with an explicit workspace" $
+    [ testCase "external suite help explains phase bypass and lifecycle refusal" $
+        case parsePublic ["test", "suite", "--help"] of
+          Failure failure -> do
+            let (message, _) = renderFailure failure "hurl-workbench"
+            for_ ["Skip setup", "teardown", "lifecycle steps are refused"] $ \phrase ->
+              assertBool "external lifecycle contract is visible" (Text.pack phrase `Text.isInfixOf` Text.unwords (Text.words (Text.pack message)))
+          _ -> assertFailure "expected suite help",
+      testCase "validate with an explicit workspace" $
         successOf (parse ["--workspace", "ws.dhall", "validate"])
           >>= (@?= Options (GlobalOptions (Just "ws.dhall")) ValidateCommand),
       testCase "list defaults to all categories" $

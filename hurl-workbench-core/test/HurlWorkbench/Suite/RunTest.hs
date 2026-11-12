@@ -18,6 +18,7 @@ import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
 import HurlWorkbench.Suite.Isolation
+import HurlWorkbench.Suite.LifecycleTest qualified as LifecycleTest
 import HurlWorkbench.Suite.Resolve
 import HurlWorkbench.Suite.Run
 import HurlWorkbench.Suite.Scenario (ScenarioInputs (..))
@@ -37,7 +38,8 @@ tests :: TestTree
 tests =
   testGroup
     "integration suites"
-    [ testCase "parallel unsafe suites are refused before syntax, binding IO, service, or Hurl" $ do
+    [ LifecycleTest.tests,
+      testCase "parallel unsafe suites are refused before syntax, binding IO, service, or Hurl" $ do
         workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
         let request name allowed manage = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing allowed manage Set.empty Nothing False)
             forbidden _ _ = assertFailure "syntax validator called"
@@ -171,8 +173,10 @@ tests =
         workspace <- validateWorkspace (context & #workspace . #services .~ services) >>= either (assertFailure . show) pure
         requests <- newTVarIO []
         let request = SuiteRequest (SuiteName "failure") Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty Nothing False)
-        result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
-        result ^. #selectedExitCode @?= ExitFailure 4
+        result <- runSuite (recordingRunner requests) trueCapabilities workspace request
+        case result of
+          Left err -> assertBool "missing environment rejected in preflight" (any (\case SuiteServiceResolutionFailed _ -> True; _ -> False) (err ^. #issues))
+          Right _ -> assertFailure "missing managed environment accepted"
         readTVarIO requests >>= (@?= [])
         external <- runSuite (recordingRunner requests) trueCapabilities workspace (request & #suiteOptions . #manageService .~ False) >>= requireSuite
         external ^. #selectedExitCode @?= ExitSuccess

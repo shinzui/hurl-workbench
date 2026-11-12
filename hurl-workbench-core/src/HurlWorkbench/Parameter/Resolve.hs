@@ -13,6 +13,7 @@ module HurlWorkbench.Parameter.Resolve
     mkSecretValue,
     resolveParameters,
     resolveParameterSubset,
+    resolveParameterSubsetInEnvironment,
     resolveParametersWithLayers,
     resolveWorkflowBindings,
     resolveWorkflowBindingsWithLayers,
@@ -74,7 +75,15 @@ resolveParametersWithLayers :: ValidatedWorkspace -> Set ParameterName -> [Bindi
 resolveParametersWithLayers = resolveParametersWithMode True
 
 resolveParametersWithMode :: Bool -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParametersWithMode rejectUnselected validated selected layers input = do
+resolveParametersWithMode = resolveParametersWithLookup lookupEnv
+
+-- | Resolve managed consumers from the invocation snapshot, including declared
+-- parameter environments and explicit secret-environment channels.
+resolveParameterSubsetInEnvironment :: [(String, String)] -> ValidatedWorkspace -> Set ParameterName -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParameterSubsetInEnvironment ambient validated selected = resolveParametersWithLookup (pure . (`Map.lookup` Map.fromList ambient)) False validated selected []
+
+resolveParametersWithLookup :: (String -> IO (Maybe String)) -> Bool -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParametersWithLookup lookupEnvironment rejectUnselected validated selected layers input = do
   loadedVariables <- loadVariableFiles (input ^. #variableFiles)
   loadedSecrets <- loadSecretFiles (input ^. #secretFiles)
   case (loadedVariables, loadedSecrets) of
@@ -99,7 +108,7 @@ resolveParametersWithMode rejectUnselected validated selected layers input = do
                        <> concatMap (unexpected selected) committedVariables
                  ]
               <> kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets committedVariables
-      resolved <- traverse (resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables) (Set.toAscList selected)
+      resolved <- traverse (resolveOne lookupEnvironment parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables) (Set.toAscList selected)
       let dynamicIssues = concatMap (\(issues, _, _) -> issues) resolved
           allIssues = staticIssues <> dynamicIssues
       pure $ case nonEmpty allIssues of
@@ -164,13 +173,13 @@ kindMismatches parameters selected explicitVariables explicitSecrets fileVariabl
 sourcesFor :: ParameterName -> Sourced value -> [BindingSource]
 sourcesFor name values = maybe [] (pure . snd) (Map.lookup name values)
 
-resolveOne :: Map ParameterName Parameter -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [Sourced HurlValueLiteral] -> ParameterName -> IO ([BindingIssue], Maybe (ParameterName, HurlValueLiteral), Maybe (ParameterName, SecretValue))
-resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables name =
+resolveOne :: (String -> IO (Maybe String)) -> Map ParameterName Parameter -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [Sourced HurlValueLiteral] -> ParameterName -> IO ([BindingIssue], Maybe (ParameterName, HurlValueLiteral), Maybe (ParameterName, SecretValue))
+resolveOne lookupEnvironment parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables name =
   case Map.lookup name parameters of
     Nothing -> pure ([], Nothing, Nothing)
     Just parameter -> case parameter ^. #kind of
       Plain -> do
-        environmentValue <- traverse (lookupPlainEnvironment name) (parameter ^. #environment)
+        environmentValue <- traverse (lookupPlainEnvironment lookupEnvironment name) (parameter ^. #environment)
         let selectedValue =
               firstJust
                 [ Right <$> Map.lookup name explicitVariables,
@@ -184,8 +193,8 @@ resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecret
           Just (Left issue) -> ([issue], Nothing, Nothing)
           Just (Right (value, _source)) -> ([], Just (name, value), Nothing)
       Secret -> do
-        explicitValue <- traverse (lookupSecretEnvironment name) (Map.lookup name explicitSecrets)
-        declaredValue <- traverse (\env -> lookupSecretEnvironment name (env, DeclaredEnvironment env)) (parameter ^. #environment)
+        explicitValue <- traverse (lookupSecretEnvironment lookupEnvironment name) (Map.lookup name explicitSecrets)
+        declaredValue <- traverse (\env -> lookupSecretEnvironment lookupEnvironment name (env, DeclaredEnvironment env)) (parameter ^. #environment)
         let fileValue = case Map.lookup name fileSecrets of
               Nothing -> Nothing
               Just (value, source) -> Just (first (InvalidSecretBinding name source) (mkSecretValue value) <&> (,source))
@@ -195,22 +204,22 @@ resolveOne parameters explicitVariables explicitSecrets fileVariables fileSecret
           Just (Left issue) -> ([issue], Nothing, Nothing)
           Just (Right (value, _source)) -> ([], Nothing, Just (name, value))
 
-lookupPlainEnvironment :: ParameterName -> Text -> IO (Either BindingIssue (HurlValueLiteral, BindingSource))
-lookupPlainEnvironment name environmentName
+lookupPlainEnvironment :: (String -> IO (Maybe String)) -> ParameterName -> Text -> IO (Either BindingIssue (HurlValueLiteral, BindingSource))
+lookupPlainEnvironment lookupEnvironment name environmentName
   | not (isValidEnvironmentName environmentName) =
       pure (Left (InvalidBindingEnvironmentName name environmentName (DeclaredEnvironment environmentName)))
   | otherwise = do
-      value <- lookupEnv (Text.unpack environmentName)
+      value <- lookupEnvironment (Text.unpack environmentName)
       pure $ case value of
         Nothing -> Left (MissingBindingEnvironment name environmentName (DeclaredEnvironment environmentName))
         Just raw -> first (InvalidPlainBinding name (DeclaredEnvironment environmentName)) (mkHurlValueLiteral (Text.pack raw)) <&> (,DeclaredEnvironment environmentName)
 
-lookupSecretEnvironment :: ParameterName -> (Text, BindingSource) -> IO (Either BindingIssue (SecretValue, BindingSource))
-lookupSecretEnvironment name (environmentName, source)
+lookupSecretEnvironment :: (String -> IO (Maybe String)) -> ParameterName -> (Text, BindingSource) -> IO (Either BindingIssue (SecretValue, BindingSource))
+lookupSecretEnvironment lookupEnvironment name (environmentName, source)
   | not (isValidEnvironmentName environmentName) =
       pure (Left (InvalidBindingEnvironmentName name environmentName source))
   | otherwise = do
-      value <- lookupEnv (Text.unpack environmentName)
+      value <- lookupEnvironment (Text.unpack environmentName)
       pure $ case value of
         Nothing -> Left (MissingBindingEnvironment name environmentName source)
         Just raw -> first (InvalidSecretBinding name source) (mkSecretValue (Text.pack raw)) <&> (,source)

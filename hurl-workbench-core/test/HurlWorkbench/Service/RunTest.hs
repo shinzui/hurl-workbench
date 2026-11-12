@@ -25,7 +25,7 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Signals (nullSignal, signalProcess)
 import System.Posix.Types (ProcessID)
-import System.Process.Typed (proc, readProcessStdout_, runProcess, runProcess_, setEnv)
+import System.Process.Typed (proc, readProcessStdout, readProcessStdout_, runProcess, runProcess_, setEnv)
 import System.Timeout qualified as Timeout
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -134,6 +134,21 @@ tests =
           case outcome of
             Left err -> assertFailure (Text.unpack (renderServiceError err))
             Right pid -> assertProcessStopped pid,
+      testCase "cleanup kills a TERM-ignoring descendant after its leader exits" $
+        withSystemTempDirectory "service-orphan" $ \directory -> do
+          let pidPath = directory </> "descendant"
+              code =
+                "import os, signal, sys, time; child = os.fork(); "
+                  <> "exec(\"if child == 0:\\n signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n open(sys.argv[1], 'w').write(str(os.getpid()))\\n while True: time.sleep(1)\\nelse:\\n while not os.path.exists(sys.argv[1]): time.sleep(0.01)\\n os._exit(7)\")"
+              service = (directService (pythonCommand [code, pidPath]) (ResolvedCommandReadiness (pythonCommand ["import time; time.sleep(0.2); raise SystemExit(1)"]) 10000 1)) {shutdownTimeout = 0.3}
+          withService service (const (assertFailure "orphaned service became ready" :: IO ())) >>= \case
+            Left (ServiceExitedBeforeReady _ _) -> pure ()
+            other -> assertFailure ("expected early exit, got " <> show other)
+          pid <- readFixturePid pidPath
+          -- A killed orphan may briefly remain as an init-owned zombie on Linux.
+          alive <- processAlive pid
+          state <- if not alive then pure "" else snd <$> readProcessStdout (proc "ps" ["-p", show pid, "-o", "stat="])
+          assertBool "descendant is terminated" (LazyByteString.null state || 'Z' `elem` LazyByteString.unpack state),
       testCase "async cancellation waits for managed-service cleanup" $
         withSystemTempDirectory "hurl-workbench-service-cancel" $ \directory -> do
           let pidPath = directory </> "pid"

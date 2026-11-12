@@ -48,6 +48,7 @@ validateWorkspace :: WorkspaceContext -> IO (Either (NonEmpty ValidationIssue) V
 validateWorkspace ctx = do
   (fragmentIssues, fragmentFiles) <- validateFragments root ws
   serviceIssues <- validateServices root ws
+  phaseIssues <- fmap concat $ for (ws ^. #suites) $ \suite -> fmap concat $ for [("setup", suite ^. #setup), ("teardown", suite ^. #teardown)] $ \(phase, commands) -> fmap concat $ for (zip [0 :: Int ..] commands) $ \(ordinal, command) -> commandIssues root ws (unSuiteName (suite ^. #name)) ("suites/" <> unSuiteName (suite ^. #name) <> "/" <> phase <> "/" <> tshow ordinal) command
   let issues =
         concat
           [ schemaIssues ws,
@@ -57,7 +58,7 @@ validateWorkspace ctx = do
             ordered (validateRecipes ws),
             ordered (validateMatrices ws),
             ordered serviceIssues,
-            ordered (validateSuites ws)
+            ordered (validateSuites ws <> phaseIssues)
           ]
   pure $ case nonEmpty issues of
     Just problems -> Left problems
@@ -368,7 +369,7 @@ validateServices root ws = do
   pure (nameIssues "services" isValidEntityName entityNameRule (map (unServiceName . view #name) (ws ^. #services)) <> concat perService)
 
 positive :: Text -> Text -> Natural -> Tagged
-positive key loc n = [issue key loc "must be greater than zero" | n == 0]
+positive key loc n = [issue key loc "must be greater than zero" | n == 0] <> [issue key loc "exceeds supported timer range" | n > fromIntegral (maxBound @Int `div` 1000000)]
 
 commandIssues :: WorkspaceRoot -> Workspace -> Text -> Text -> CommandSpec -> IO Tagged
 commandIssues root ws key loc spec = do
@@ -379,6 +380,7 @@ commandIssues root ws key loc spec = do
       pure [issue key (loc <> "/workingDirectory") problem | Left problem <- [result]]
   pure $
     [issue key (loc <> "/executable") "executable must not be empty" | Text.null (Text.strip (spec ^. #executable))]
+      <> [issue key loc "process arguments must not contain NUL" | any (Text.any (== '\0')) (spec ^. #executable : spec ^. #arguments)]
       <> policyProblems
       <> workingDirectoryProblems
       <> [ issue key (loc <> "/environment") ("environment variable " <> quote v <> " is bound more than once")
@@ -416,13 +418,33 @@ validateSuites ws =
     suiteIssues s =
       let name = unSuiteName (s ^. #name)
           loc = "suites/" <> name
-       in [issue name (loc <> "/runs") "suite must have at least one run" | null (s ^. #runs)]
-            <> [issue name (loc <> "/service") "independent-state suites cannot declare a shared managed service" | s ^. #isolation == IndependentState, isJust (s ^. #service)]
+       in [issue name (loc <> "/runs") "suite must have at least one run" | all (\case ServiceRun _ -> True; _ -> False) (s ^. #runs)]
+            <> [issue name (loc <> "/service") "independent-state suites cannot declare a shared managed service" | s ^. #isolation == IndependentState, not (null (suiteServices s))]
+            <> [issue name (loc <> "/services") "service and nonempty services cannot both be supplied" | isJust (s ^. #service), not (null (s ^. #services))]
+            <> [issue name (loc <> "/services") ("duplicate service " <> quote (unServiceName svc)) | svc <- duplicates (suiteServices s)]
+            <> positive name (loc <> "/commandTimeoutSeconds") (s ^. #commandTimeoutSeconds)
+            <> positive name (loc <> "/cleanupTimeoutSeconds") (s ^. #cleanupTimeoutSeconds)
+            <> [issue name (loc <> "/commandTimeoutSeconds") "timeout exceeds supported microsecond range" | s ^. #commandTimeoutSeconds > fromIntegral (maxBound @Int `div` 1000000)]
+            <> [issue name (loc <> "/cleanupTimeoutSeconds") "timeout exceeds supported microsecond range" | s ^. #cleanupTimeoutSeconds > fromIntegral (maxBound @Int `div` 1000000)]
+            <> map (issue name (loc <> "/runs")) (transitions (Set.fromList (suiteServices s)) (s ^. #runs))
             <> mapMaybe (fmap (issue name (loc <> "/runs")) . unresolvedRun) (s ^. #runs)
             <> [ issue name (loc <> "/service") ("unknown service " <> quote (unServiceName svc))
-               | Just svc <- [s ^. #service],
+               | svc <- suiteServices s,
                  svc `Set.notMember` services
                ]
+    transitions initial = go initial
+      where
+        go _ [] = []
+        go running (ServiceRun step : remaining) =
+          let (svc, requiresRunning, next) = case step of
+                Stop n -> (n, True, Set.delete n running)
+                Start n -> (n, False, Set.insert n running)
+                Restart n -> (n, True, running)
+              problems =
+                ["lifecycle service does not belong to suite: " <> quote (unServiceName svc) | svc `Set.notMember` initial]
+                  <> ["invalid lifecycle transition for " <> quote (unServiceName svc) | Set.member svc running /= requiresRunning]
+           in problems <> go next remaining
+        go running (_ : remaining) = go running remaining
     unresolvedRun = \case
       WorkflowRun w | w `Set.notMember` workflows -> Just ("unknown workflow " <> quote (unWorkflowName w))
       RecipeRun r | r `Set.notMember` recipes -> Just ("unknown recipe " <> quote (unRecipeName r))

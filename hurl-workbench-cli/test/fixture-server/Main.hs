@@ -1,12 +1,21 @@
 module Main (main) where
 
-import FixtureServer (runFixtureServer)
+import FixtureServer (runFixtureRole, runFixtureServer)
 import System.Environment (getArgs, getEnvironment, lookupEnv)
 import Text.Read (readMaybe)
 
 main :: IO ()
 main = do
   arguments <- getArgs
+  case arguments of
+    ["--role", role, "--port", value, "--state-dir", root] | role `elem` ["api", "stub", "worker"] ->
+      case readMaybe value of
+        Just port | port > 0 && port <= 65535 -> runFixtureRole role port root
+        _ -> ioError (userError "invalid role port")
+    _ -> runDefault arguments
+
+runDefault :: [String] -> IO ()
+runDefault arguments = do
   if arguments == ["--assert-clean"]
     then do
       environment <- getEnvironment

@@ -2,6 +2,12 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-6 resolved: User identified stale shell; registry discovery now succeeds.
+
+
+* **Addition**: FRIC-6 records blocked environment friction with mori://shinzui/mori: Mori registry unavailable during multi-service implementation
+
+
 * **Update**: FRIC-5 resolved: Linux container release validation uses devShells.check; all 91 core and 37 CLI tests plus the complete release gate pass.
 
 

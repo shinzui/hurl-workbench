@@ -93,3 +93,23 @@ User-controlled report symlinks, including ancestor links, are rejected. macOS's
 `/tmp` and `/var` aliases are accepted only when they resolve to `/private/tmp` and `/private/var`.
 The [handoff guide](guides/integration-testing.md#independent-scenario-handoff) defines binding
 conflicts, endpoint validation, and the provider trust boundary.
+
+## Suite phases and lifecycle ownership
+
+Setup and teardown use executable/argv commands, suite-level bindings and the same
+Clean/Inherit selector as services. One invocation snapshot freezes inherited and
+explicit parameter environments for every start, readiness retry, phase and
+restart. Whole-suite preflight precedes setup, including late lifecycle references
+and teardown inputs. External mode skips all managed phases and refuses barriers.
+
+Captured phase output is sensitive: owner-only directories and files, relative
+artifact references in summaries, and no automatic output replay. Without a report
+root, bracketed private captures are removed after finalization. Summaries never
+serialize command argv, environments, resolved fixture paths or captured text.
+The reserved `phases` subtree cannot collide with case artifact names.
+
+Every spawned group is registered before readiness. Cleanup addresses descendants
+even after leader exit, uses bounded TERM/KILL escalation, and reaps leaders before
+teardown. Restart atomically retires the previous monitor generation before its
+intentional stop. Cleanup failures remain separate from the primary cause, and
+cancellation propagates after finalization. Database leases remain caller-owned.

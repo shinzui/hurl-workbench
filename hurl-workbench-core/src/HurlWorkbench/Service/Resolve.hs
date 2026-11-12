@@ -7,6 +7,7 @@ module HurlWorkbench.Service.Resolve
     ServiceError (..),
     requiredServiceParameters,
     resolveService,
+    resolveCommand,
     renderServiceError,
   )
 where
@@ -36,14 +37,7 @@ data ResolvedCommand = ResolvedCommand
   deriving stock (Generic, Eq)
 
 instance Show ResolvedCommand where
-  show command =
-    "ResolvedCommand {executable="
-      <> show (command ^. #executable)
-      <> ", arguments="
-      <> show (command ^. #arguments)
-      <> ", workingDirectory="
-      <> show (command ^. #workingDirectory)
-      <> ", environment=<redacted>}"
+  show _ = "ResolvedCommand <redacted>"
 
 data ResolvedReadiness
   = ResolvedHttpReadiness !Text !Int !Int !NominalDiffTime
@@ -59,7 +53,8 @@ data ResolvedService = ResolvedService
   deriving stock (Generic, Eq, Show)
 
 data ServiceError
-  = ServiceBindingMissing !ParameterName
+  = ServicePhaseFailed !Text
+  | ServiceBindingMissing !ParameterName
   | ServiceBindingUnknown !ParameterName
   | ServiceReadinessSecretPlaceholder !ParameterName
   | ServiceReadinessMalformedPlaceholder !Text
@@ -186,6 +181,7 @@ seconds = fromIntegral
 
 renderServiceError :: ServiceError -> Text
 renderServiceError = \case
+  ServicePhaseFailed phase -> "suite " <> phase <> " command failed"
   ServiceBindingMissing name -> "service parameter " <> quotedParameter name <> " has no suite-level runtime value"
   ServiceBindingUnknown name -> "readiness URL refers to unknown parameter " <> quotedParameter name
   ServiceReadinessSecretPlaceholder name -> "readiness URL must not contain secret parameter " <> quotedParameter name

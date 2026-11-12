@@ -90,3 +90,25 @@ owned children; finalization retains completed outcomes, marks unfinished cases 
 writes a best-effort `cancelled` summary before rethrowing the original interruption. A reporting
 failure never swallows cancellation. Provider-owned services and leases remain with the caller.
 Hurl response artifacts retain the sensitive-output boundary in ADR 4.
+
+## Lifecycle preflight and ordered results (2026-11-12)
+
+[Plan 10](../plans/10-support-ordered-multi-service-suite-lifecycles.md) preserves
+whole-suite preflight across an ordered PreparedStep sequence: nonempty Hurl
+batches with global case offsets and named lifecycle barriers. All phase commands,
+policies, transition prerequisites and artifact paths are prepared before setup.
+External mode bypasses managed phases and refuses lifecycle steps. Isolation checks
+still inspect every expanded Hurl case; barriers do not authorize parallel mutation.
+
+SuiteResult preserves legacy cases/service fields and adds ordered steps, named
+services, phase outcomes, a primary cause and separate cleanup diagnostics. Cleanup
+failure selects exit 4 without overwriting an earlier Hurl cause. Failed lifecycle
+prerequisites always abort later steps. Fail-fast also spans batches; keep-going
+continues only after ordinary Hurl failures. Cancellation retains completed cases,
+cleans groups, attempts teardown and summary, then rethrows.
+
+Phase captures use collision-checked private phases/setup/INDEX and
+phases/teardown/INDEX subtrees, or bracketed private temporary directories. Only
+relative artifact references enter summaries, and captured text is never replayed.
+The caller's fixture paths, lease credentials and release responsibility stay
+outside summaries and lifecycle ownership.

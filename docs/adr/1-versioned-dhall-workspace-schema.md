@@ -69,3 +69,10 @@ Manifests stay small and forward-compatible, and a version skew is reported as o
 naming both versions. Adding a required field is deliberately expensive: it forces a schema
 version bump. The schema directory is part of the product surface and must ship with
 releases and examples.
+
+Version-1 suite evolution also inserts missing lifecycle fields (services, phase
+commands and budgets), widens the known Hurl run union with Service steps, and
+converts populated records and empty-list annotations consistently. The conversion
+is limited to the service/suite subtrees; it preserves all supplied values and
+unknown fields, and re-typechecks the result before typed extraction. Frozen
+pre-lifecycle service-plus-suite records are a compatibility witness.

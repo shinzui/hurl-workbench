@@ -56,9 +56,10 @@ All `description` fields are `Optional Text` and default to `None Text`.
   `30`).
 - `Service`: `name`, `command`, `readiness` (`Http` or `Command`), `shutdownTimeoutSeconds`
   (default `10`), and description.
-- `RunReference`: `Workflow Text`, `Recipe Text`, or `Matrix Text`.
+- `ServiceStep`: `Stop Text`, `Start Text`, or `Restart Text`.
+- `RunReference`: `Workflow Text`, `Recipe Text`, `Matrix Text`, or `Service ServiceStep`.
 - `IsolationPolicy`: `SharedState` or `IndependentState`.
-- `Suite`: `name`, non-empty `runs`, optional `service`, `isolation` (default `SharedState`),
+- `Suite`: `name`, non-empty Hurl `runs` (with optional lifecycle steps), optional `service`, ordered `services` (default `[]`), `setup` and `teardown` command lists (default `[]`), positive `commandTimeoutSeconds` (default `60`) and `cleanupTimeoutSeconds` (default `30`), `isolation` (default `SharedState`),
   `failFast` (default `False`), and description. IndependentState cannot declare a managed service
   and requires a verified runtime handoff at execution.
 
@@ -105,3 +106,29 @@ Missing suite isolation fields in schema-version-1 evaluated records and empty s
 are normalized to SharedState. Explicit invalid policies still fail typed decoding. Independent
 handoff bindings have their own conflict rules, documented in the
 [integration guide](../guides/integration-testing.md#independent-scenario-handoff).
+
+## Ordered suite lifecycles
+
+Use `services = [ "stub", "api", "worker" ]` for ordered acquisition. Each
+service must become ready before the next starts. `service = Some "api"` remains
+single-service sugar; supplying both forms is an error. Duplicate service names
+and references outside the suite are rejected.
+
+`RunReference.Service (ServiceStep.Restart "worker")` is a barrier: every earlier
+Hurl case finishes before restart, readiness repeats, and later cases start only
+after it finishes. Stop requires a running member; Start requires a stopped
+member; Restart requires a running member. The entire transition sequence is
+validated before setup. Ordinary Hurl failures allow later batches under
+keep-going; a lifecycle failure always aborts the remaining sequence.
+
+Setup runs in declaration order before acquisition. Teardown runs in declaration
+order after reverse process-group cleanup, including setup failure and
+cancellation. A timed-out collective cleanup budget skips the remaining teardown
+commands. Phase commands require exit zero, have closed stdin, and share the
+suite-level binding and environment rules. Teardown must tolerate partial setup.
+No lifecycle operation or mutating request is retried automatically.
+
+The version-1 compatibility conversion adds only missing fields and widens the
+known old Hurl union, including explicit empty-list type annotations. Both the
+original and converted expressions are typechecked; explicit malformed values or
+unknown fields remain errors. Frozen compatibility manifests are unchanged.

@@ -446,7 +446,7 @@ suiteCommandOptionsParser =
     <*> suiteControlOptionsParser
     <*> parserOptionGroup
       "Service lifecycle"
-      (switch (long "external-service" <> help "Use an already-running service and skip managed startup, readiness, and shutdown"))
+      (switch (long "external-service" <> help "Skip setup, managed services, and teardown; suites with lifecycle steps are refused"))
     <*> optional (strOption (long "scenario-inputs" <> metavar "FILE" <> help "Private per-scenario fixture and endpoint assignments"))
     <*> suiteReportOptionsParser
     <*> bindingOptionsParser

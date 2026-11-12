@@ -1,2 +1,4 @@
-{- What a suite runs: a workflow, recipe, or matrix, by name. -}
-< Workflow : Text | Recipe : Text | Matrix : Text >
+{- Hurl runs and named service lifecycle barriers. -}
+let ServiceStep = ./ServiceStep.dhall
+
+in < Workflow : Text | Recipe : Text | Matrix : Text | Service : ServiceStep >

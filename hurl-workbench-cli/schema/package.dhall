@@ -27,6 +27,7 @@
 , CommandReadiness = ./CommandReadiness.dhall
 , Readiness = ./Readiness.dhall
 , Service = ./Service.dhall
+, ServiceStep = ./ServiceStep.dhall
 , RunReference = ./RunReference.dhall
 , IsolationPolicy = ./IsolationPolicy.dhall
 , Suite = ./Suite.dhall

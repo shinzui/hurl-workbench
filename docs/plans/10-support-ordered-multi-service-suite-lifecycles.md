@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-11T21:02:49Z
       mode: "other"
       note: "Complete initial IR plan, link created Mina intention, and check cross-plan acceptance contracts"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-12T04:30:15Z
+      mode: "implement"
+      note: "Implement ordered services, lifecycle barriers, phase commands, and acceptance coverage"
 ---
 
 # Support ordered multi-service suite lifecycles
@@ -35,18 +40,28 @@ This implements [IR-1](../improvement-requests/support-several-managed-services-
 ## Progress
 
 
-- [ ] Milestone 1: Old manifests remain compatible and multi-service suites are fully validated and prepared before execution.
-- [ ] Milestone 2: Ordered startup, bounded setup/teardown, and reverse process-group cleanup pass success, failure, and cancellation tests.
-- [ ] Milestone 3: Named lifecycle steps form barriers between parallel Hurl batches and produce ordered, redacted results.
+- [x] Milestone 1 (2026-11-12): Old manifests, including frozen service-plus-suite records and run unions, remain compatible; all service/phase/transition inputs are preflighted before setup. Core tests and `just schema-check` pass.
+- [x] Milestone 2 (2026-11-12): Ordered startup, bounded phases and reverse acquisition cleanup pass readiness-position failures, partial setup, cancellation and orphan-descendant tests; all owned leaders are reaped.
+- [x] Milestone 3 (2026-11-12): Stop/Start/Restart barriers drain jobs=2 batches, preserve global cases and partial outcomes, retire monitor generations and freeze environments. Redacted summaries retain old fields and add named lifecycle/phase/cleanup outcomes.
 - [ ] Milestone 4: Public CLI examples and real leased-fixture command/read acceptance prove ownership, safety, and release ordering.
 
-Planning handoff: no implementation is claimed. Intention creation succeeded through `mina ci --json`. Mori registry discovery failed on 2026-11-11 because the configured local PostgreSQL socket refused connections. Re-run dependency and consumer discovery before implementing new dependency API calls or the real adoption driver; do not substitute guessed provider commands for acceptance evidence.
+Implementation checkpoint (2026-11-12 UTC): the additive schema, narrow compatibility conversion, phase preflight/environment snapshots, process groups, ordered batches/barriers and redacted results are implemented. The public local command/read and jobs=2 read-only barrier driver passes. The macOS `nix develop -c just check` gate passes, including 106 core and 38 CLI tests, schema/release-copy checks, actual examples, source archive builds and Nix checks. Linux and real consumer acceptance are being finalized. Mori discovery works after clearing inherited Home Manager session markers (FRIC-6); it located the Hinagata lease interfaces and Rei production `worker query-projections` owner. Real application/lease acceptance is still in progress; local roles alone do not satisfy AC-7.
 
 
 ## Surprises & Discoveries
 
 
+2026-11-12: The configured Mori database was healthy; inherited `__HM_ZSH_SESS_VARS_SOURCED` and `__HM_SESS_VARS_SOURCED` markers retained stale connection settings even in new login/interactive shells. Clearing those markers before a fresh login shell restored discovery. FRIC-6 is resolved.
+
+2026-11-12: On macOS, signalling an already-disappeared process group can return EPERM rather than ESRCH. Cleanup now observes group disappearance and avoids unnecessary escalation while retaining failures for remaining groups. A descendant fixture verifies KILL still reaches a TERM-ignoring child after leader exit.
+
+
 ## Decision Log
+
+
+2026-11-12: Use the live STM membership list as the monitor generation rather than queueing separate per-process monitor events. Intentional stop checks observed leader exits and retires membership atomically; restarted processes create new entries, so stale STM transactions cannot cancel replacements.
+
+2026-11-12: Reserve `phases` against case artifact stems, capture phase output in owner-only files, and never replay command output. The shared parameter resolver also accepts an explicit environment snapshot so parameter channels and final exec environments cannot diverge during preflight or restart.
 
 
 2026-11-11: Keep schema version 1 and preserve `Suite.service` as single-service sugar. Reject simultaneous nonempty `services` and `service`, and normalize legacy evaluated records and union annotations before typed extraction. Completion defaults alone do not preserve explicitly typed old manifests.

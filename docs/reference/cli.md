@@ -96,3 +96,24 @@ hurl-workbench completions fish > ~/.config/fish/completions/hurl-workbench.fish
 
 The generated scripts require `hurl-workbench` on `PATH` and query its hidden completion protocol
 at tab-completion time.
+
+## Multi-service suites
+
+`test suite NAME` prepares every Hurl batch, service, setup command, teardown
+command, environment policy and report path before setup starts. The environment
+is frozen for all managed commands and later restarts. Named lifecycle actions
+appear as `SERVICE NAME ACTION STATUS`; phase outcomes appear as `PHASE` lines.
+Lifecycle and phase work have their own statuses, independent of Hurl cases.
+
+`--external-service` bypasses setup, managed services/readiness/shutdown and
+teardown. It refuses a suite containing lifecycle steps. `--fail-fast` also skips
+later batches and barriers after a failed Hurl batch. With keep-going, only ordinary
+Hurl failures permit later execution; service/lifecycle failures stop the sequence.
+Setup, service and cleanup failures select exit 4. An earlier Hurl failure remains
+recorded as the primary cause if cleanup also fails.
+
+`summary.json` retains `cases` and aggregate `service` for existing clients, and
+adds ordered `steps`, named `services`, `phases`, `primaryFailure`, and separate
+`cleanupDiagnostics`. Phase output lives under private
+`phases/setup/INDEX/` and `phases/teardown/INDEX/` directories when a report root is
+selected. Without reports, captures are temporary and removed at finalization.

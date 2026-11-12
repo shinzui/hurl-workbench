@@ -48,6 +48,8 @@ module HurlWorkbench.Workspace.Types
     Readiness (..),
     Service (..),
     RunReference (..),
+    ServiceStep (..),
+    suiteServices,
     IsolationPolicy (..),
     Suite (..),
   )
@@ -319,10 +321,15 @@ data Service = Service
 
 -- | What a suite runs. Dhall alternatives are @Workflow@, @Recipe@, and
 --   @Matrix@.
+data ServiceStep = Stop !ServiceName | Start !ServiceName | Restart !ServiceName
+  deriving stock (Generic, Eq, Show)
+  deriving anyclass (FromDhall)
+
 data RunReference
   = WorkflowRun !WorkflowName
   | RecipeRun !RecipeName
   | MatrixRun !MatrixName
+  | ServiceRun !ServiceStep
   deriving stock (Generic, Eq, Show)
 
 instance FromDhall RunReference where
@@ -338,12 +345,20 @@ data Suite = Suite
   { name :: !SuiteName,
     runs :: ![RunReference],
     service :: !(Maybe ServiceName),
+    services :: ![ServiceName],
+    setup :: ![CommandSpec],
+    teardown :: ![CommandSpec],
+    commandTimeoutSeconds :: !Natural,
+    cleanupTimeoutSeconds :: !Natural,
     isolation :: !IsolationPolicy,
     failFast :: !Bool,
     description :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
   deriving anyclass (FromDhall)
+
+suiteServices :: Suite -> [ServiceName]
+suiteServices Suite {service, services} = if null services then maybe [] pure service else services
 
 -- | Map Haskell constructor names such as @HttpReadinessCheck@ to Dhall
 --   alternative names such as @Http@.

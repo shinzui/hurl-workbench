@@ -99,7 +99,7 @@ server, including echoed credentials, so store and retain the report root as sen
 ## Generated variables
 
 
-Arbitrary pre/post hooks are intentionally outside the workbench. When a request needs an external
+Generated per-request inputs remain caller-prepared; suite setup and teardown are bounded lifecycle phases. When a request needs an external
 signature or other generated input, run the dedicated helper first and have it write a standard
 Hurl properties file:
 
@@ -141,7 +141,7 @@ explicitly. Resolve executable paths in the caller and use absolute paths for de
 startup. A child language runtime can add its own variables after launch; the policy controls
 the environment passed to the executable. Command readiness uses its own policy and keeps the
 same captured environment across retries. HTTP readiness and Hurl's environment filtering remain
-separate contracts. Lifecycle hooks and executable checks are not currently implemented.
+separate contracts. Setup, teardown and named service lifecycle barriers use these same environment rules. Executable check steps remain separately planned.
 
 The `clean` suite in `examples/integration-service/hurl-workbench.dhall` uses a selected PORT
 that an explicit workspace binding overrides. Its readiness command starts with an empty
@@ -329,3 +329,24 @@ also passed success, Hurl failure, cancellation, and partial acquisition cleanup
 `scripts/check-scenario-isolation-local.py` with two explicitly selected in-memory fixture servers,
 plus public CLI/core tests; it requires no developer database credentials and does not replace
 this real-provider evidence.
+
+## Ordered services and lifecycle barriers
+
+Use the [multi-service example](../../examples/multi-service/README.md) for an
+API/stub/worker suite with setup, teardown and a named restart. Consecutive Hurl
+runs form bounded batches; Stop/Start/Restart drain the preceding batch and finish
+before the next begins. A worker restart repeats readiness and moves that service
+to the newest cleanup position. All active leaders are monitored, including during
+later startup. Unexpected death cancels active Hurl process groups and retains
+completed case outcomes.
+
+The example submits one mutation and polls only GET observations. Use jobs=1
+for a shared mutating fixture. A separate read-only example proves jobs=2 barriers;
+a barrier does not establish scenario isolation. Explicit Clean policies apply to
+service/readiness/setup/teardown commands, using one preflight environment snapshot.
+
+For real adoption use `scripts/check-multi-service-lease.sh` inside the caller's
+existing lease and follow its [consumer evidence contract](../../examples/multi-service/README.md).
+The driver checks success, readiness failure, unexpected exit and cancellation,
+and confirms consumer PIDs have stopped. The caller releases the database only
+after the driver returns and records that provider-side release evidence.

@@ -38,6 +38,7 @@ schema-check: cabal-index
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-command/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-http/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-suite/hurl-workbench.dhall validate
+    cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-service-suite/hurl-workbench.dhall validate
     echo "schema compatibility: PASS"
 
 performance: cabal-index
@@ -64,6 +65,7 @@ examples: cabal-index
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite perimeter; \
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite writes --allow-mutating; \
     echo "examples: PASS"
+    HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" HURL_WORKBENCH_FIXTURE_EXECUTABLE="$(cabal list-bin hurl-workbench-fixture-server)" python3 scripts/check-multi-service-local.py
     bash scripts/check-clean-environment-lease-simulation.sh
     HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-scenario-isolation-local.py
 

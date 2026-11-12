@@ -116,7 +116,7 @@ suiteRow :: ValidatedWorkspace -> Suite -> [Text]
 suiteRow validated s =
   [ unSuiteName (s ^. #name),
     commaList (map runLabel (s ^. #runs)),
-    maybe "" unServiceName (s ^. #service),
+    commaList (map unServiceName (suiteServices s)),
     suiteSafety validated s,
     yesNo (s ^. #failFast),
     describe (s ^. #description)
@@ -126,6 +126,7 @@ suiteRow validated s =
       WorkflowRun w -> "workflow:" <> unWorkflowName w
       RecipeRun r -> "recipe:" <> unRecipeName r
       MatrixRun m -> "matrix:" <> unMatrixName m
+      ServiceRun step -> "service:" <> Text.pack (show step)
 
 suiteSafety :: ValidatedWorkspace -> Suite -> Text
 suiteSafety validated suite =
@@ -137,6 +138,7 @@ suiteSafety validated suite =
   where
     dispositions = map disposition (suite ^. #runs)
     disposition = \case
+      ServiceRun _ -> ReadOnlyRun
       WorkflowRun _ -> UnclassifiedRun
       RecipeRun name -> maybe UnclassifiedRun recipeDisposition (lookupRecipe name validated)
       MatrixRun name -> case lookupMatrix name validated >>= (\matrix -> lookupRecipe (matrix ^. #recipe) validated) of

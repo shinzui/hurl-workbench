@@ -4,19 +4,23 @@ module HurlWorkbench.Service.Run
   ( ServiceHandle,
     serviceProcessId,
     withService,
+    freezeService,
+    awaitService,
+    prepareCommand,
   )
 where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Exception (IOException, SomeException, displayException, mask, throwIO, try)
+import Control.Exception (SomeException, finally, mask, throwIO, try)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
 import HurlWorkbench.Prelude
+import HurlWorkbench.Process.Run
 import HurlWorkbench.Service.Environment (selectEnvironment)
 import HurlWorkbench.Service.Resolve
-import HurlWorkbench.Workspace.Types (ServiceName (..))
+import HurlWorkbench.Workspace.Types (EnvironmentPolicy (..), ServiceName (..))
 import Network.HTTP.Client
   ( HttpException,
     Manager,
@@ -31,22 +35,10 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.Posix.Signals (sigKILL, sigTERM, signalProcessGroup)
 import System.Posix.Types (ProcessID)
 import System.Process.Typed
   ( Process,
-    ProcessConfig,
-    closed,
     getExitCode,
-    getPid,
-    proc,
-    runProcess,
-    setCreateGroup,
-    setEnv,
-    setStdin,
-    setWorkingDir,
-    startProcess,
-    stopProcess,
     waitExitCode,
   )
 import System.Timeout qualified as Timeout
@@ -76,23 +68,22 @@ withService service callback = mask $ \restore -> do
         Right readiness -> launch restore command readiness
   where
     launch restore command readiness = do
-      started <- try @IOException (startProcess (serviceProcessConfig command))
-      case started of
-        Left err -> pure (Left (ServiceSpawnFailed (service ^. #processConfig . #executable) (Text.pack (displayException err))))
-        Right process -> do
-          processId <- getPid process
-          case processId of
-            Nothing -> do
-              _ <- try @SomeException (stopProcess process)
-              pure (Left (ServiceProcessIdUnavailable (service ^. #name)))
-            Just pid -> do
-              execution <- try @SomeException (restore (runLifecycle service readiness process pid callback))
-              shutdown <- shutdownService service process pid
-              case execution of
-                Left exception -> throwIO exception
-                Right result -> pure $ case shutdown of
-                  Left err -> Left err
-                  Right () -> result
+      spawnGroup (service ^. #name) (commandConfig command) >>= \case
+        Left err -> pure (Left err)
+        Right owned -> do
+          execution <- try @SomeException (restore (runLifecycle service readiness (owned ^. #process) (owned ^. #processId) callback))
+          shutdown <- terminateGroup (service ^. #name) (service ^. #shutdownTimeout) owned
+          case execution of
+            Left exception -> throwIO exception
+            Right (Left err) -> pure (Left err)
+            Right (Right value) -> pure (value <$ shutdown)
+
+awaitService :: ResolvedService -> OwnedProcess -> IO (Either ServiceError ())
+awaitService service owned = do
+  prepared <- prepareReadiness [] (service ^. #name) (service ^. #readiness)
+  case prepared of
+    Left err -> pure (Left err)
+    Right readiness -> awaitReadiness service readiness (owned ^. #process)
 
 runLifecycle :: ResolvedService -> PreparedReadiness -> Process () () () -> ProcessID -> (ServiceHandle -> IO a) -> IO (Either ServiceError a)
 runLifecycle service readiness process pid callback =
@@ -110,7 +101,7 @@ prepareReadiness :: [(String, String)] -> ServiceName -> ResolvedReadiness -> IO
 prepareReadiness _ambient _name (ResolvedHttpReadiness url expectedStatus interval timeout) = do
   parsed <- try @HttpException (parseRequest (Text.unpack url))
   case parsed of
-    Left err -> pure (Left (ServiceReadinessInvalidUrl url (Text.pack (displayException err))))
+    Left _ -> pure (Left (ServiceReadinessInvalidUrl "<redacted>" "URL could not be parsed"))
     Right request -> do
       manager <- newManager defaultManagerSettings
       let withTimeout = request {responseTimeout = responseTimeoutMicro 1000000}
@@ -131,7 +122,19 @@ prepareCommand :: [(String, String)] -> ServiceName -> Text -> ResolvedCommand -
 prepareCommand ambient name phase command =
   case selectEnvironment (command ^. #environmentPolicy) ambient (command ^. #environment) of
     Left missing -> Left (ServiceEnvironmentMissing name phase missing)
-    Right selected -> Right (command & #environment .~ selected)
+    Right selected -> Right (command & #environment .~ selected & #environmentPolicy .~ Clean [])
+
+freezeService :: [(String, String)] -> ResolvedService -> IO (Either ServiceError ResolvedService)
+freezeService ambient service = case prepareCommand ambient (service ^. #name) "command" (service ^. #processConfig) of
+  Left err -> pure (Left err)
+  Right command ->
+    prepareReadiness ambient (service ^. #name) (service ^. #readiness)
+      <&> fmap
+        ( \prepared ->
+            service & #processConfig .~ command & #readiness .~ case prepared of
+              PreparedCommandReadiness probe interval timeout -> ResolvedCommandReadiness probe interval timeout
+              PreparedHttpReadiness {} -> service ^. #readiness
+        )
 
 awaitReadiness :: ResolvedService -> PreparedReadiness -> Process () () () -> IO (Either ServiceError ())
 awaitReadiness service readiness process = do
@@ -161,12 +164,12 @@ probeReadiness :: PreparedReadiness -> IO (Either ServiceError Bool)
 probeReadiness (PreparedHttpReadiness manager request expected _interval _timeout) = do
   attempted <- try @HttpException (httpNoBody request manager)
   pure (Right (either (const False) ((== expected) . statusCode . responseStatus) attempted))
-probeReadiness (PreparedCommandReadiness command _interval _timeout) = do
-  attempted <- try @IOException (runProcess (readinessProcessConfig command))
-  pure $ case attempted of
-    Left err -> Left (ServiceReadinessProbeStartFailed (command ^. #executable) (Text.pack (displayException err)))
-    Right ExitSuccess -> Right True
-    Right (ExitFailure _) -> Right False
+probeReadiness (PreparedCommandReadiness command _interval timeout) = mask $ \restore -> do
+  spawnGroup (ServiceName "readiness") (commandConfig command) >>= \case
+    Left _ -> pure (Left (ServiceReadinessProbeStartFailed "<redacted>" "process launch failed"))
+    Right owned -> do
+      exitCode <- restore (waitExitCode (owned ^. #process)) `finally` void (terminateGroup (ServiceName "readiness") (min 1 timeout) owned)
+      pure (Right (exitCode == ExitSuccess))
 
 readinessInterval :: PreparedReadiness -> Int
 readinessInterval = \case
@@ -177,60 +180,6 @@ readinessTimeout :: PreparedReadiness -> NominalDiffTime
 readinessTimeout = \case
   PreparedHttpReadiness _ _ _ _ timeout -> timeout
   PreparedCommandReadiness _ _ timeout -> timeout
-
-serviceProcessConfig :: ResolvedCommand -> ProcessConfig () () ()
-serviceProcessConfig command =
-  setCreateGroup True
-    . setStdin closed
-    . setWorkingDir (command ^. #workingDirectory)
-    . setEnv (command ^. #environment)
-    $ proc (command ^. #executable) (command ^. #arguments)
-
-readinessProcessConfig :: ResolvedCommand -> ProcessConfig () () ()
-readinessProcessConfig command =
-  setStdin closed
-    . setWorkingDir (command ^. #workingDirectory)
-    . setEnv (command ^. #environment)
-    $ proc (command ^. #executable) (command ^. #arguments)
-
-shutdownService :: ResolvedService -> Process () () () -> ProcessID -> IO (Either ServiceError ())
-shutdownService service process pid = do
-  alreadyExited <- getExitCode process
-  case alreadyExited of
-    Just _ -> finishCleanup
-    Nothing -> do
-      termSignal <- try @IOException (signalProcessGroup sigTERM pid)
-      waited <- Timeout.timeout timeoutMicros (waitExitCode process)
-      case waited of
-        Just _ -> finishCleanup
-        Nothing -> do
-          killSignal <- try @IOException (signalProcessGroup sigKILL pid)
-          killed <- Timeout.timeout timeoutMicros (waitExitCode process)
-          case killed of
-            Just _ -> finishCleanup
-            Nothing ->
-              pure
-                ( Left
-                    ( ServiceShutdownFailed
-                        (service ^. #name)
-                        (Just pid)
-                        (signalDetails termSignal killSignal <> "service did not exit after SIGKILL")
-                    )
-                )
-  where
-    timeoutMicros = max 1 (floor ((service ^. #shutdownTimeout) * 1000000))
-    finishCleanup = do
-      cleaned <- try @SomeException (stopProcess process)
-      pure $ case cleaned of
-        Left err -> Left (ServiceShutdownFailed (service ^. #name) (Just pid) (Text.pack (displayException err)))
-        Right () -> Right ()
-
-signalDetails :: Either IOException () -> Either IOException () -> Text
-signalDetails termSignal killSignal =
-  Text.concat
-    [ either (\err -> "SIGTERM failed: " <> Text.pack (displayException err) <> "; ") (const "") termSignal,
-      either (\err -> "SIGKILL failed: " <> Text.pack (displayException err) <> "; ") (const "") killSignal
-    ]
 
 remainingMicroseconds :: UTCTime -> UTCTime -> Int
 remainingMicroseconds now deadline = max 1 (floor (diffUTCTime deadline now * 1000000))

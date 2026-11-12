@@ -37,7 +37,12 @@ decodingTests :: TestTree
 decodingTests =
   testGroup
     "decoding"
-    [ testCase "frozen populated old suites default to shared state" $ do
+    [ testCase "frozen old service suites normalize additive fields and run unions" $ do
+        ws <- decodeOrFail (fixture "old-service-suite")
+        map suiteServices (ws ^. #suites) @?= [[ServiceName "old"]]
+        map (view #setup) (ws ^. #suites) @?= [[]]
+        map (view #commandTimeoutSeconds) (ws ^. #suites) @?= [60],
+      testCase "frozen populated old suites default to shared state" $ do
         old <- decodeOrFail (fixture "old-suite")
         shared <- decodeOrFail (fixture "shared-suite")
         old @?= shared

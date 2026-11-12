@@ -68,3 +68,23 @@ The implementation is intentionally POSIX-specific. A future non-POSIX port need
 job/process-tree ownership mechanism rather than silently weakening cleanup to leader-only
 termination. Service configuration cannot derive readiness or environment values from recipe or
 matrix-case binding layers because those values are not stable for the suite-wide process.
+
+## Ordered group ownership (2026-11-12)
+
+[Plan 10](../plans/10-support-ordered-multi-service-suite-lifecycles.md) extends
+ownership to ordered service acquisitions and named Stop/Start/Restart barriers.
+Process.Run owns group spawn/termination; Service.Group holds newest-first
+acquisitions, registered before readiness. The STM membership list is also the
+monitor generation: intentional stop checks already-observed leader exits and
+retires that member atomically. Old monitor transactions cannot target a restart.
+The group monitor covers subsequent acquisitions, batches and lifecycle work.
+
+Cleanup signals the whole group even after leader exit, waits a bounded TERM
+grace period, escalates remaining groups with KILL and reaps leaders. macOS can
+report EPERM for signalling an already-disappeared group, so no escalation is
+attempted once disappearance is observed. Ownership is retained if stop fails.
+Restarted members get a new acquisition position. Setup precedes acquisitions;
+reverse cleanup precedes bounded teardown, including failure and cancellation.
+All managed consumers freeze the environment and parameter-environment channels
+from one preflight snapshot. Resolved commands redact argv and paths as well as
+environment values. withService remains a compatibility wrapper.

@@ -7,6 +7,7 @@ module HurlWorkbench.Suite.Resolve
     SuitePreflightIssue (..),
     SuitePreflightError (..),
     PreparedSuite (..),
+    PreparedStep (..),
     SuiteMetadata (..),
     ScenarioMetadata (..),
     suiteMetadata,
@@ -28,6 +29,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Data.Time.Clock (NominalDiffTime)
 import HurlWorkbench.Hurl.Format (HurlfmtCapabilities, HurlfmtError, validateRenderedWorkflow)
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
@@ -36,6 +38,7 @@ import HurlWorkbench.Run.Batch
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Service.Resolve
+import HurlWorkbench.Service.Run (freezeService, prepareCommand)
 import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Suite.Scenario
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
@@ -48,6 +51,7 @@ import System.Directory
     doesPathExist,
     removePathForcibly,
   )
+import System.Environment (getEnvironment)
 import System.FilePath (normalise, splitDirectories, (</>))
 import System.IO.Error (isDoesNotExistError)
 import System.Info (os)
@@ -106,6 +110,7 @@ data SuitePreflightIssue
   | SuiteReportPathIsSymbolicLink !FilePath
   | SuiteReportPathIsNotDirectory !FilePath
   | SuiteReportIoError !FilePath !Text
+  | SuiteExternalLifecycle
   | SuiteServiceNotFound !ServiceName
   | SuiteServiceBindingFailed !BindingError
   | SuiteServiceResolutionFailed !ServiceError
@@ -132,18 +137,26 @@ data SuiteMetadata = SuiteMetadata
   }
   deriving stock (Generic, Eq, Show)
 
+data PreparedStep = HurlBatch !Int !(NonEmpty BatchCase) | ServiceBarrier !ServiceStep
+  deriving stock (Generic, Show)
+
 data PreparedSuite = PreparedSuite
   { metadata :: !SuiteMetadata,
     cases :: !(NonEmpty BatchCase),
     batchOptions :: !BatchOptions,
-    managedService :: !(Maybe ResolvedService)
+    managedServices :: ![ResolvedService],
+    steps :: ![PreparedStep],
+    setupCommands :: ![ResolvedCommand],
+    teardownCommands :: ![ResolvedCommand],
+    commandTimeout :: !NominalDiffTime,
+    cleanupTimeout :: !NominalDiffTime
   }
   deriving stock (Generic, Show)
 
 suiteMetadata :: ValidatedWorkspace -> SuiteRequest -> Either SuitePreflightError SuiteMetadata
 suiteMetadata workspace request = do
   suite <- maybe (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| []))) Right (lookupSuite (request ^. #suiteName) workspace)
-  expanded <- either (Left . SuitePreflightError . (:| []) . SuiteRunPreparationFailed . SelectionPreparationFailed) Right (traverse (resolveSelection workspace . runSelection) (suite ^. #runs))
+  expanded <- either (Left . SuitePreflightError . (:| []) . SuiteRunPreparationFailed . SelectionPreparationFailed) Right (traverse (resolveSelection workspace . runSelection) (hurlReferences suite))
   runs <- maybe (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| []))) Right (nonEmpty (concatMap toList expanded))
   pure
     SuiteMetadata
@@ -183,16 +196,17 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
       | Just problems <- nonEmpty (checkSuiteIsolationWith verified validated (request ^. #suiteName) (request ^. #suiteOptions . #jobs)) ->
           pure (Left (SuitePreflightError (fmap SuiteIsolationFailed problems)))
     Just suite -> do
+      ambient <- getEnvironment
       selections <- case verified of
-        Nothing -> traverse prepareReference (suite ^. #runs)
-        Just inputs -> case traverse (resolveSelection validated . runSelection) (suite ^. #runs) of
+        Nothing -> traverse prepareReference (hurlReferences suite)
+        Just inputs -> case traverse (resolveSelection validated . runSelection) (hurlReferences suite) of
           Left err -> pure [Left (SelectionPreparationFailed err :| [])]
           Right expanded -> case nonEmpty (concatMap toList expanded) of
             Nothing -> error "validated suite has no runs"
             Just runs -> case traverse (\run -> (run,) <$> scenarioBindingInput inputs run) runs of
               Nothing -> error "verified scenario assignment incomplete"
               Just assigned -> pure <$> prepareExpandedForSuiteWith validateRendered capabilities validated (request ^. #hurlOptions) assigned
-      serviceResult <- prepareManagedService suite
+      serviceResult <- prepareManagedServices ambient suite
       let preparationIssues =
             concat
               [ map preparationIssue (NonEmpty.toList errors)
@@ -205,7 +219,9 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
               not (request ^. #suiteOptions . #allowMutating),
               requiresAuthorization (prepared ^. #safety)
             ]
-          duplicateIssues = map SuiteDuplicateArtifactStem (duplicates (map (view #artifactStem) preparedRuns))
+          duplicateIssues =
+            map SuiteDuplicateArtifactStem (duplicates (map (view #artifactStem) preparedRuns))
+              <> [SuiteDuplicateArtifactStem "phases" | not (null (suite ^. #setup) && null (suite ^. #teardown)), any (\run -> take 1 (splitDirectories (run ^. #artifactStem)) == ["phases"]) preparedRuns]
           curlIssues =
             [ SuiteSharedCurlExport path
             | length preparedRuns > 1,
@@ -218,7 +234,7 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
       case nonEmpty issues of
         Just problems -> pure (Left (SuitePreflightError problems))
         Nothing -> case (nonEmpty preparedRuns, serviceResult) of
-          (Just runs, Right service) ->
+          (Just runs, Right (services, setup, teardown)) ->
             prepareReports suite runs >>= \case
               Left problem -> pure (Left (SuitePreflightError (problem :| [])))
               Right (batchCases, _summary) ->
@@ -231,7 +247,12 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
                             BatchOptions
                               (request ^. #suiteOptions . #jobs)
                               (fromMaybe (suite ^. #failFast) (request ^. #suiteOptions . #failFastOverride)),
-                          managedService = service
+                          managedServices = services,
+                          steps = orderedSteps validated suite batchCases,
+                          setupCommands = setup,
+                          teardownCommands = teardown,
+                          commandTimeout = fromIntegral (suite ^. #commandTimeoutSeconds),
+                          cleanupTimeout = fromIntegral (suite ^. #cleanupTimeoutSeconds)
                         }
                   )
           _ -> error "prepareSuite: validated suite produced no prepared runs"
@@ -248,20 +269,34 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
         (request ^. #hurlOptions)
         (runSelection reference)
 
-    prepareManagedService suite
-      | not (request ^. #suiteOptions . #manageService) = pure (Right Nothing)
-      | otherwise = case suite ^. #service of
-          Nothing -> pure (Right Nothing)
-          Just serviceName -> case lookupService serviceName validated of
-            Nothing -> pure (Left (SuiteServiceNotFound serviceName))
-            Just service -> case requiredServiceParameters service of
+    prepareManagedServices ambient suite
+      | not (request ^. #suiteOptions . #manageService) =
+          pure $ if any isLifecycle (suite ^. #runs) then Left SuiteExternalLifecycle else Right ([], [], [])
+      | otherwise = do
+          services <- traverse (prepareService ambient) (suiteServices suite)
+          setup <- traverse (preparePhase ambient "setup") (suite ^. #setup)
+          teardown <- traverse (preparePhase ambient "teardown") (suite ^. #teardown)
+          pure ((,,) <$> sequence services <*> sequence setup <*> sequence teardown)
+
+    prepareService ambient serviceName = case lookupService serviceName validated of
+      Nothing -> pure (Left (SuiteServiceNotFound serviceName))
+      Just service -> case requiredServiceParameters service of
+        Left err -> pure (Left (SuiteServiceResolutionFailed err))
+        Right required ->
+          resolveParameterSubsetInEnvironment ambient validated required (request ^. #bindingInput) >>= \case
+            Left err -> pure (Left (SuiteServiceBindingFailed err))
+            Right bindings -> case resolveService validated bindings service of
               Left err -> pure (Left (SuiteServiceResolutionFailed err))
-              Right required ->
-                resolveParameterSubset validated required (request ^. #bindingInput) <&> \case
-                  Left err -> Left (SuiteServiceBindingFailed err)
-                  Right bindings -> case resolveService validated bindings service of
-                    Left err -> Left (SuiteServiceResolutionFailed err)
-                    Right resolved -> Right (Just resolved)
+              Right resolved -> fmap (either (Left . SuiteServiceResolutionFailed) Right) (freezeService ambient resolved)
+
+    preparePhase ambient phase command =
+      resolveParameterSubsetInEnvironment ambient validated (Set.fromList (map (view #parameter) (command ^. #environment))) (request ^. #bindingInput) <&> \case
+        Left err -> Left (SuiteServiceBindingFailed err)
+        Right bindings ->
+          either
+            (Left . SuiteServiceResolutionFailed)
+            Right
+            (resolveCommand validated bindings command >>= prepareCommand ambient (request ^. #suiteName & unSuiteName & ServiceName) phase)
 
     prepareReports suite runs = case request ^. #suiteOptions . #reportDirectory of
       Nothing ->
@@ -282,7 +317,7 @@ prepareVerifiedSuiteWith verified validateRendered capabilities validated reques
                 | (prepared, runRoot) <- zip runList runRoots
                 ]
             summary = suiteRoot </> "summary.json"
-        prepared <- prepareReportLayout reportRoot suiteRoot runRoots (request ^. #suiteOptions . #overwriteReports)
+        prepared <- prepareReportLayout reportRoot suiteRoot (runRoots <> [suiteRoot </> "phases" </> phase </> show ordinal | (phase, commands) <- [("setup", suite ^. #setup), ("teardown", suite ^. #teardown)], ordinal <- [0 .. length commands - 1]]) (request ^. #suiteOptions . #overwriteReports)
         pure ((,Just summary) batchCases <$ prepared)
 
 -- | Public early boundary for core runners and CLI capability detection. Raw
@@ -298,17 +333,39 @@ preflightScenarioInputs workspace request = case lookupSuite (request ^. #suiteN
     (IndependentState, Nothing) -> pure (failure (SuiteIsolationFailed IndependentStateHandoffRequired))
     (IndependentState, Just inputs)
       | request ^. #suiteOptions . #manageService -> pure (failure SuiteIndependentExternalRequired)
-      | otherwise -> case traverse (resolveSelection workspace . runSelection) (suite ^. #runs) of
+      | otherwise -> case traverse (resolveSelection workspace . runSelection) (hurlReferences suite) of
           Left err -> pure (failure (SuiteRunPreparationFailed (SelectionPreparationFailed err)))
           Right expanded -> verifyScenarioInputs workspace (concatMap toList expanded) (request ^. #bindingInput) inputs <&> either (failure . SuiteScenarioFailed) (Right . Just)
   where
     failure issue = Left (SuitePreflightError (issue :| []))
+
+hurlReferences :: Suite -> [RunReference]
+hurlReferences suite = filter (not . isLifecycle) (suite ^. #runs)
+
+isLifecycle :: RunReference -> Bool
+isLifecycle (ServiceRun _) = True
+isLifecycle _ = False
+
+-- | Partition adjacent Hurl references without losing global case indices.
+orderedSteps :: ValidatedWorkspace -> Suite -> NonEmpty BatchCase -> [PreparedStep]
+orderedSteps workspace suite cases = go 0 [] 0 (toList cases) (suite ^. #runs)
+  where
+    flush _ [] = []
+    flush offset accumulated = [HurlBatch offset (NonEmpty.fromList accumulated)]
+    go offset accumulated count _remaining [] = flush (offset - count) accumulated
+    go offset accumulated count remaining (ServiceRun step : rest) =
+      flush (offset - count) accumulated <> [ServiceBarrier step] <> go offset [] 0 remaining rest
+    go offset accumulated count remaining (reference : rest) =
+      let size = either (const 0) length (resolveSelection workspace (runSelection reference))
+          (batch, later) = splitAt size remaining
+       in go (offset + size) (accumulated <> batch) (count + size) later rest
 
 runSelection :: RunReference -> RunSelection
 runSelection = \case
   WorkflowRun name -> SelectWorkflow name
   RecipeRun name -> SelectRecipe name
   MatrixRun name -> SelectMatrix name
+  ServiceRun _ -> error "lifecycle step is not a Hurl selection"
 
 requiresAuthorization :: SafetyDisposition -> Bool
 requiresAuthorization = \case
@@ -407,6 +464,7 @@ renderSuitePreflightIssue = \case
   SuiteScenarioInputsUnexpected -> "scenario-inputs-unexpected: shared-state suites reject scenario inputs"
   SuiteIndependentExternalRequired -> "independent-state-external-required: use --external-service"
   SuiteIsolationFailed issue -> renderIsolationIssue issue
+  SuiteExternalLifecycle -> "external-service-lifecycle: lifecycle steps require managed services"
   SuiteNotFound name -> "unknown suite " <> quote (unSuiteName name)
   SuiteRunPreparationFailed err -> renderPreparationError err
   SuiteUnsafeRun name disposition ->
@@ -438,6 +496,7 @@ suitePreflightReasonCode = \case
   SuiteScenarioInputsUnexpected -> "scenario-inputs-unexpected"
   SuiteIndependentExternalRequired -> "independent-state-external-required"
   SuiteDependencyUnavailable -> "suite-dependency-unavailable"
+  SuiteExternalLifecycle -> "external-service-lifecycle"
   SuiteNotFound _ -> "suite-not-found"
   SuiteRunPreparationFailed RunBindingFailed {} -> "suite-binding-failed"
   SuiteRunPreparationFailed _ -> "suite-preparation-failed"

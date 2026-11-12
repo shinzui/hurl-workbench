@@ -60,10 +60,12 @@ decodeWorkspaceFile path = do
             Just version
               | version /= supportedSchemaVersion ->
                   pure (Left (UnsupportedSchemaVersion path version supportedSchemaVersion))
-              | otherwise -> decodeTyped (normalizeSuiteIsolation (normalizeCommandPolicies normalized))
+              | otherwise -> decodeTyped (normalizeCommandPolicies (normalizeSuiteLifecycle normalized))
 
     decodeTyped normalized = do
-      expected <- trySync (Dhall.expectWithSettings settings decoder normalized)
+      expected <- trySync $ do
+        Dhall.typecheckWithSettings settings normalized
+        Dhall.expectWithSettings settings decoder normalized
       pure $ case expected of
         Left exception -> Left (DhallFailure path (renderException exception))
         Right () -> case Dhall.toMonadic (Dhall.extract decoder normalized) of
@@ -111,7 +113,7 @@ normalizeCommandPolicies :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
 normalizeCommandPolicies (Dhall.Core.RecordLit fields) =
   Dhall.Core.RecordLit
     ( Dhall.Map.fromList
-        [(key, if key == "services" then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
+        [(key, if key `elem` ["services", "suites"] then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
     )
   where
     policyType = Dhall.Core.Union (Dhall.Map.fromList [("Inherit", Nothing), ("Clean", Just (Dhall.Core.App Dhall.Core.List Dhall.Core.Text))])
@@ -129,26 +131,49 @@ normalizeCommandPolicies (Dhall.Core.RecordLit fields) =
             other -> other
 normalizeCommandPolicies other = other
 
--- | Upgrade only suite records and their empty-list element annotations. Explicit
--- policies still pass through the normal typed decoder without a fallback.
-normalizeSuiteIsolation :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
-normalizeSuiteIsolation (Dhall.Core.RecordLit fields) =
+-- | Version-1 additive conversion, scoped to suites. Preserve explicit fields
+-- and widen only the known Hurl run union (including empty-list annotations).
+-- Both the original expression and the converted expression are typechecked.
+normalizeSuiteLifecycle :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
+normalizeSuiteLifecycle (Dhall.Core.RecordLit fields) =
   Dhall.Core.RecordLit
     ( Dhall.Map.fromList
         [(key, if key == "suites" then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
     )
   where
-    policyType = Dhall.Core.Union (Dhall.Map.fromList [("SharedState", Nothing), ("IndependentState", Nothing)])
-    shared = Dhall.Core.Field policyType (Dhall.Core.makeFieldSelection "SharedState")
+    list = Dhall.Core.App Dhall.Core.List
+    record = Dhall.Core.Record . Dhall.Map.fromList . map (\(key, value) -> (key, Dhall.Core.makeRecordField value))
+    union names = Dhall.Core.Union (Dhall.Map.fromList [(key, value) | (key, value) <- names])
+    policyType = union [("SharedState", Nothing), ("IndependentState", Nothing)]
+    commandType =
+      record
+        [ ("executable", Dhall.Core.Text),
+          ("arguments", list Dhall.Core.Text),
+          ("workingDirectory", Dhall.Core.App Dhall.Core.Optional Dhall.Core.Text),
+          ("environmentPolicy", union [("Inherit", Nothing), ("Clean", Just (list Dhall.Core.Text))]),
+          ("environment", list (record [("variable", Dhall.Core.Text), ("parameter", Dhall.Core.Text)]))
+        ]
+    stepType = union [(key, Just Dhall.Core.Text) | key <- ["Stop", "Start", "Restart"]]
+    defaults =
+      [ ("isolation", policyType, Dhall.Core.Field policyType (Dhall.Core.makeFieldSelection "SharedState")),
+        ("services", list Dhall.Core.Text, Dhall.Core.ListLit (Just (list Dhall.Core.Text)) mempty),
+        ("setup", list commandType, Dhall.Core.ListLit (Just (list commandType)) mempty),
+        ("teardown", list commandType, Dhall.Core.ListLit (Just (list commandType)) mempty),
+        ("commandTimeoutSeconds", Dhall.Core.Natural, Dhall.Core.NaturalLit 60),
+        ("cleanupTimeoutSeconds", Dhall.Core.Natural, Dhall.Core.NaturalLit 30)
+      ]
+    add isType fields_ =
+      if all (\key -> isJust (Dhall.Map.lookup key fields_)) ["name", "runs", "service", "failFast", "description"]
+        then foldl (\acc (key, type_, value) -> if isJust (Dhall.Map.lookup key acc) then acc else Dhall.Map.insert key (Dhall.Core.makeRecordField (if isType then type_ else value)) acc) fields_ defaults
+        else fields_
     upgrade expression =
       let nested = runIdentity (Dhall.Core.subExpressions (Identity . upgrade) expression)
-          add value record =
-            if all (\key -> isJust (Dhall.Map.lookup key record)) ["name", "runs", "service", "failFast", "description"]
-              && not (isJust (Dhall.Map.lookup "isolation" record))
-              then Dhall.Map.insert "isolation" (Dhall.Core.makeRecordField value) record
-              else record
        in case nested of
-            Dhall.Core.RecordLit record -> Dhall.Core.RecordLit (add shared record)
-            Dhall.Core.Record record -> Dhall.Core.Record (add policyType record)
+            Dhall.Core.RecordLit fields_ -> Dhall.Core.RecordLit (add False fields_)
+            Dhall.Core.Record fields_ -> Dhall.Core.Record (add True fields_)
+            Dhall.Core.Union alternatives
+              | all (\key -> Dhall.Map.lookup key alternatives == Just (Just Dhall.Core.Text)) ["Workflow", "Recipe", "Matrix"],
+                not (isJust (Dhall.Map.lookup "Service" alternatives)) ->
+                  Dhall.Core.Union (Dhall.Map.insert "Service" (Just stepType) alternatives)
             other -> other
-normalizeSuiteIsolation other = other
+normalizeSuiteLifecycle other = other

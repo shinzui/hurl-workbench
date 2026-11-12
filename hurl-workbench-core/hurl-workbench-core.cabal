@@ -57,6 +57,7 @@ library
     HurlWorkbench.Run.Prepare
     HurlWorkbench.Run.Selection
     HurlWorkbench.Service.Environment
+    HurlWorkbench.Service.Group
     HurlWorkbench.Service.Resolve
     HurlWorkbench.Service.Run
     HurlWorkbench.Suite.Isolation
@@ -74,6 +75,7 @@ library
 
   other-modules:
     HurlWorkbench.Parameter.Resolve.Internal
+    HurlWorkbench.Process.Run
     HurlWorkbench.Workspace.Context.Internal
 
   build-depends:
@@ -106,6 +108,7 @@ test-suite hurl-workbench-core-test
     HurlWorkbench.Parameter.ParameterTest
     HurlWorkbench.Run.SelectionTest
     HurlWorkbench.Service.RunTest
+    HurlWorkbench.Suite.LifecycleTest
     HurlWorkbench.Suite.RunTest
     HurlWorkbench.Suite.ScenarioTest
     HurlWorkbench.Workflow.WorkflowTest

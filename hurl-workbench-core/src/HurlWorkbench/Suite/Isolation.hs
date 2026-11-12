@@ -42,11 +42,13 @@ checkSuiteIsolationWith verified workspace name jobs = case lookupSuite name wor
   Just suite | suite ^. #isolation == IndependentState, isJust verified -> []
   Just suite -> checkIsolation (suite ^. #isolation) jobs (concatMap expanded (suite ^. #runs))
   where
+    expanded (ServiceRun _) = []
     expanded reference = either (const []) toList (resolveSelection workspace (selection reference))
     selection = \case
       WorkflowRun name_ -> SelectWorkflow name_
       RecipeRun name_ -> SelectRecipe name_
       MatrixRun name_ -> SelectMatrix name_
+      ServiceRun _ -> error "lifecycle step is not a Hurl selection"
 
 renderIsolationIssue :: IsolationIssue -> Text
 renderIsolationIssue = \case
