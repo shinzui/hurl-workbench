@@ -12,7 +12,9 @@ module HurlWorkbench.Check.Run
   )
 where
 
-import Control.Exception (IOException, SomeException, mask, throwIO, try)
+import Control.Applicative ((<|>))
+import Control.Concurrent.Async (async, wait)
+import Control.Exception (IOException, SomeException, mask, throwIO, try, uninterruptibleMask_)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
@@ -23,7 +25,7 @@ import HurlWorkbench.Service.Resolve (ServiceError)
 import HurlWorkbench.Workspace.Types (CheckName (..), ServiceName (..))
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
-import System.IO (Handle, hClose)
+import System.IO (hClose)
 import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Posix.IO (OpenFileFlags (..), OpenMode (WriteOnly), defaultFileFlags, fdToHandle, openFd)
 import System.Process qualified as Process
@@ -101,28 +103,39 @@ runCheckObservedWith cleanup root check observe = mask $ \restore -> do
     Left _ -> finish CheckStartFailed Nothing [] False
     Right (stdout, stderr) -> do
       let close = hClose stdout >> hClose stderr
+      spawnBegan <- getCurrentTime
       started <- spawnGroup (ServiceName (unCheckName (check ^. #name))) (commandConfig (check ^. #processConfig)) {Process.std_out = Process.UseHandle stdout, Process.std_err = Process.UseHandle stderr}
       case started of
         Left _ -> close >> finish CheckStartFailed Nothing [] True
         Right owned -> do
           now <- getCurrentTime
-          let remaining = max 1 (floor (((check ^. #timeout) - diffUTCTime now began) * 1000000))
-          executed <- try @SomeException (restore (Timeout.timeout remaining (waitExitCode owned)))
-          cleaned <- cleanup owned
-          close
-          let diagnostics = either (const ["process-group-cleanup-failed"]) (const []) cleaned
-          case executed of
-            Left exception -> do
+          let remaining = floor (((check ^. #timeout) - diffUTCTime now spawnBegan) * 1000000)
+          executed <- try @SomeException (restore (if remaining <= 0 then pure Nothing else Timeout.timeout remaining (waitExitCode owned)))
+          -- Cancellation can arrive after leader exit while TERM grace is
+          -- running. Join the independently bounded cleanup task before allowing
+          -- that exception to propagate; do not cancel the cleanup itself.
+          cleaning <- async (try @SomeException (cleanup owned))
+          joined <- try @SomeException (wait cleaning)
+          (cleaned, interrupted) <- case joined of
+            Right result -> pure (result, Nothing)
+            Left exception -> (,Just exception) <$> uninterruptibleMask_ (wait cleaning)
+          closed <- try @IOException close
+          let diagnostics = (case cleaned of Right (Right ()) -> []; _ -> ["process-group-cleanup-failed"]) <> ["capture-close-failed" | Left _ <- [closed]]
+              exception = either Just (const Nothing) executed <|> interrupted
+          case exception of
+            Just exception_ -> do
               _ <- finish CheckCancelled Nothing diagnostics True
-              throwIO exception
-            Right Nothing -> finish CheckTimedOut Nothing diagnostics True
-            Right (Just status) ->
-              let actual = case status of ExitSuccess -> 0; ExitFailure code -> code
-                  outcome
-                    | actual < 0 = CheckSignalled
-                    | actual == check ^. #expectedStatus = CheckPassed
-                    | otherwise = CheckMismatch
-               in finish outcome (Just actual) diagnostics True
+              throwIO exception_
+            Nothing -> case executed of
+              Left exception_ -> throwIO exception_
+              Right Nothing -> finish CheckTimedOut Nothing diagnostics True
+              Right (Just status) ->
+                let actual = case status of ExitSuccess -> 0; ExitFailure code -> code
+                    outcome
+                      | actual < 0 = CheckSignalled
+                      | actual == check ^. #expectedStatus = CheckPassed
+                      | otherwise = CheckMismatch
+                 in finish outcome (Just actual) diagnostics True
   where
     unpackName = Text.unpack . unCheckName
     capture path = do

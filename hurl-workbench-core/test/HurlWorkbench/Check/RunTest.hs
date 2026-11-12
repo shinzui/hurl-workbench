@@ -26,6 +26,7 @@ import HurlWorkbench.Workspace.Discover (WorkspaceSource (..))
 import HurlWorkbench.Workspace.Types
 import HurlWorkbench.Workspace.Validate
 import System.Directory (canonicalizePath, createDirectoryIfMissing, createFileLink, doesFileExist, removeFile)
+import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -55,6 +56,13 @@ tests =
             content <- Bytes.readFile path
             assertBool "separate stream" ((if stream == "stdout" then "private-output" else "private-error") `Bytes.isInfixOf` content)
           assertBool "resolved command redacted" (not ("sensitive-argument" `Text.isInfixOf` Text.pack (show check))),
+      testCase "signal termination never matches an expected normal exit" $
+        fixture $ \root workspace -> do
+          check <- resolved workspace (definition ["signal"] & #expectedStatus .~ 15)
+          result <- runCheck root check
+          result ^. #outcome @?= CheckSignalled
+          result ^. #actualStatus @?= Just (-15)
+          checkExitCode result @?= ExitFailure 143,
       testCase "timeout includes descendant cleanup and allows no live survivor" $
         fixture $ \root workspace -> do
           check <- resolved workspace (definition ["timeout"])
@@ -82,6 +90,19 @@ tests =
           result <- readIORef observed >>= maybe (assertFailure "no partial result") pure
           result ^. #outcome @?= CheckCancelled
           assertStopped root,
+      testCase "cancellation during descendant cleanup still joins cleanup and observes cancellation" $
+        fixture $ \root workspace -> do
+          check <- resolved workspace (definition ["orphan"])
+          observed <- newIORef Nothing
+          withAsync (runCheckObserved root check (writeIORef observed . Just)) $ \worker -> do
+            bounded (waitFor (root </> "child.pid"))
+            -- The leader has exited; its descendant holds the TERM grace open.
+            threadDelay 200000
+            bounded (cancel worker)
+            waitCatch worker >>= \case Left _ -> pure (); Right _ -> assertFailure "cancel swallowed"
+          result <- readIORef observed >>= maybe (assertFailure "no cleanup observation") pure
+          result ^. #outcome @?= CheckCancelled
+          assertStopped root,
       testCase "spawn race and capture collision are distinct start failures" $
         fixture $ \root workspace -> do
           check <- resolved workspace (definition ["0"])
@@ -102,7 +123,7 @@ tests =
           withSystemTempDirectory "check-outside" $ \outside -> do
             writeFile (outside </> "outside") "outside"
             createFileLink (outside </> "outside") (root </> "escape")
-            for_ ["", "/bin/sh", "../check.py", "checks", "missing", "escape"] $ \path -> reject workspace (definition [] & #command . #executable .~ path) "/command/executable"
+            for_ ["", "\0", "/bin/sh", "../check.py", "checks", "missing", "escape"] $ \path -> reject workspace (definition [] & #command . #executable .~ path) "/command/executable"
             validateChanged workspace [definition [] & #command . #executable .~ "inside"] >>= either (assertFailure . show) (const (pure ()))
           setFileMode (root </> "check.py") 0o600
           reject workspace (definition []) "/command/executable"
@@ -117,6 +138,13 @@ tests =
           check <- resolved workspace (definition ["prefix={{plain}}", "sensitive-argument"])
           check ^. #processConfig . #arguments @?= ["prefix=one argument", "sensitive-argument"]
           assertBool "secret absent from argv" (not ("secret-sentinel" `Text.isInfixOf` Text.pack (show (check ^. #processConfig . #arguments)))),
+      testCase "a check status 4 cannot masquerade as lifecycle failure when summary writing fails" $
+        fixture $ \root workspace -> do
+          changed <- validateChanged workspace [definition ["summary-error"]] >>= either (assertFailure . show) pure
+          result <- runSuiteWith validate forbidden capabilities changed (suiteRequest root) >>= either (assertFailure . show) pure
+          result ^. #selectedExitCode @?= ExitFailure 3
+          assertBool "summary error retained" (isJust (result ^. #summaryError))
+          [check ^. #actualStatus | CheckStep check <- result ^. #steps] @?= [Just 4],
       testCase "checks-only suites, late preflight, report requirement and duplicate occurrence refusal" $
         fixture $ \root workspace -> do
           let req = suiteRequest root
@@ -155,6 +183,8 @@ script =
     [ "#!/usr/bin/env python3",
       "import os, sys, time, signal",
       "mode = sys.argv[1] if len(sys.argv) > 1 else '0'",
+      "if mode == 'summary-error': os.mkdir('reports/only/summary.json'); raise SystemExit(4)",
+      "if mode == 'signal': os.kill(os.getpid(), signal.SIGTERM)",
       "print('private-output', flush=True); print('private-error', file=sys.stderr, flush=True)",
       "if mode in ('timeout', 'orphan'):",
       "    pid = os.fork()",
@@ -174,7 +204,8 @@ definition arguments = Check (CheckName "parity") (CommandSpec "check.py" argume
 resolved :: ValidatedWorkspace -> Check -> IO ResolvedCheck
 resolved workspace check = do
   changed <- validateChanged workspace [check] >>= either (assertFailure . show) pure
-  prepareCheck [] changed emptyBindingInput (CheckName "parity") >>= either (assertFailure . show) pure
+  ambient <- getEnvironment
+  prepareCheck ambient changed emptyBindingInput (CheckName "parity") >>= either (assertFailure . show) pure
 
 validateChanged :: ValidatedWorkspace -> [Check] -> IO (Either (NonEmpty ValidationIssue) ValidatedWorkspace)
 validateChanged workspace checks = validateWorkspace (validatedContext workspace & #workspace . #checks .~ checks)

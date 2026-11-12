@@ -27,6 +27,7 @@ schema version is `1`.
 | `workflows` | `List Workflow.Type` | `[]` | Ordered fragment compositions. |
 | `recipes` | `List Recipe.Type` | `[]` | Workflow, committed bindings, and safety. |
 | `matrices` | `List Matrix.Type` | `[]` | Named case layers over one recipe. |
+| `checks` | `List Check.Type` | `[]` | Named workspace executable assertions. |
 | `services` | `List Service.Type` | `[]` | Managed processes and readiness checks. |
 | `suites` | `List Suite.Type` | `[]` | Non-empty run collections and optional service. |
 
@@ -57,15 +58,15 @@ All `description` fields are `Optional Text` and default to `None Text`.
 - `Service`: `name`, `command`, `readiness` (`Http` or `Command`), `shutdownTimeoutSeconds`
   (default `10`), and description.
 - `ServiceStep`: `Stop Text`, `Start Text`, or `Restart Text`.
-- `RunReference`: `Workflow Text`, `Recipe Text`, `Matrix Text`, or `Service ServiceStep`.
+- `RunReference`: `Workflow Text`, `Recipe Text`, `Matrix Text`, `Check Text`, or `Service ServiceStep`.
 - `IsolationPolicy`: `SharedState` or `IndependentState`.
-- `Suite`: optional `fileRootParameter` (default `None Text`), `name`, non-empty Hurl `runs` (with optional lifecycle steps), optional `service`, ordered `services` (default `[]`), `setup` and `teardown` command lists (default `[]`), positive `commandTimeoutSeconds` (default `60`) and `cleanupTimeoutSeconds` (default `30`), `isolation` (default `SharedState`),
+- `Suite`: optional `fileRootParameter` (default `None Text`), `name`, non-empty `runs` containing Hurl or check runs (with optional lifecycle steps), optional `service`, ordered `services` (default `[]`), `setup` and `teardown` command lists (default `[]`), positive `commandTimeoutSeconds` (default `60`) and `cleanupTimeoutSeconds` (default `30`), `isolation` (default `SharedState`),
   `failFast` (default `False`), and description. IndependentState cannot declare a managed service
   and requires a verified runtime handoff at execution.
 
 ## Names, paths, and references
 
-Fragment, workflow, recipe, matrix, case, service, and suite names match
+Fragment, workflow, recipe, matrix, case, check, service, and suite names match
 `[A-Za-z][A-Za-z0-9._-]*`. Parameter names match `[A-Za-z_][A-Za-z0-9_-]*` and cannot be Hurl's
 reserved template functions `getEnv`, `newDate`, or `newUuid`. Environment variable names match
 `[A-Za-z_][A-Za-z0-9_]*`. Names are unique within their category.
@@ -161,3 +162,31 @@ Static validation checks the reference and kind without reading the directory or
 runtime value. Secret and Generated parameters cannot select paths exposed to Hurl argv.
 Old schema-version-1 records, including empty suite list annotations, decode with `None`.
 Fragment paths and rendered source are unaffected.
+
+## Executable checks
+
+`Check` has `name`, `command : CommandSpec.Type`, `expectedStatus` (default 0,
+range 0..255), `timeoutSeconds : Optional Natural` (default None, meaning a finite
+60-second execution deadline), and optional `description`. Explicit timeouts must
+be positive and fit the runtime timer range. `RunReference.Check "name"` selects
+it inside a suite; standalone run/test selectors remain workflows and recipes.
+
+Unlike a service command, a check executable must be a nonempty workspace-relative
+executable file. Parent traversal and absolute paths are refused. Its canonical
+target must stay inside the workspace; a contained symlink is allowed. Check names
+are unique within their category. Repeated occurrences that would reuse an artifact
+directory are refused during suite preflight.
+
+Each argv element may contain exact `{{parameter}}` templates surrounded by literal
+text. Only declared Plain parameters are allowed; unknown names, malformed braces,
+Secret and Generated parameters fail static validation. Each substituted value
+stays one argv element without shell splitting. Checks use only suite-wide runtime,
+file, environment and default bindings, with no recipe or matrix layers. Secrets
+use explicit environment bindings. Inherit/Clean use the shared command policy and
+one invocation snapshot. All checks are prepared before setup or any child starts.
+
+Checks require `--report-dir`, including checks-only suites. They run once as
+barriers between adjacent parallel Hurl batches. Outputs occupy the private
+`REPORT/SUITE/checks/CHECK/` namespace. A normal exit matches `expectedStatus`;
+timeout, signal, cancellation, launch failure and cleanup diagnostics are distinct.
+Cleanup has a separate five-second TERM grace plus five-second KILL/reap budget.

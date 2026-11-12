@@ -42,18 +42,31 @@ This implements [IR-4](../improvement-requests/admit-executable-checks-as-ordere
 
 - [x] Milestone 1 (2026-11-12): Version-1 manifests remain compatible; named checks validate canonical executable containment, references, duplicate names, status/timer ranges, Plain argv templates and environment policies. All frozen compatibility fixtures and located negative check tests pass.
 - [x] Milestone 2 (2026-11-12): The single-shot runner uses private separate file captures and the shared ten-second group cleanup policy. Tests prove expected zero/nonzero status, mismatch, spawn/capture failure, timeout, cancellation, TERM-ignoring descendants after leader exit, owner-only captures and injected secondary cleanup failure.
-- [x] Milestone 3 (2026-11-12): Public CLI tests prove jobs=2 ordering on both barrier edges, checks-only execution, keep-going/fail-fast, whole-suite preflight, report refusal, redaction, timeout/cancellation summaries and service death during a check. Service cleanup precedes teardown after check failure. Core: 132 tests passed; CLI: 51 tests passed.
-- [ ] Milestone 4: A real application-owned CLI/API parity check demonstrates declared inputs, semantic comparison, and mismatch reporting alongside package/platform acceptance.
+- [x] Milestone 3 (2026-11-12): Public CLI tests prove jobs=2 ordering on both barrier edges, checks-only execution, keep-going/fail-fast, whole-suite preflight, report refusal, redaction, timeout/cancellation summaries and service death during a check. Service cleanup precedes teardown after check failure. Core: 135 tests passed; CLI: 52 tests passed; a focused run also verifies cancellation during cleanup with an actual invocation environment snapshot.
+- [x] Milestone 4 (2026-11-12): Local and actual Rei CLI/API category parity checks use declared inputs and independently provisioned fixtures. The HTTP-only mismatch is named and fails. Both macOS `nix develop -c just check` and Apple-container ARM64 `just linux-check` pass, including 135 core/52 CLI tests, examples, source-archive executable modes and Nix checks.
 
-Implementation checkpoint: milestones 1–3 are implemented and tested. Milestone 4 remains open for the distributed examples, real independently provisioned application parity evidence and final platform/release checks. Mori discovery now succeeds using the endpoint already configured in the shell profile; dependency sources and the actual Rei consumer documentation have been inspected. No dependency bounds changed.
+Completion (2026-11-12): All four milestones and AC-1 through AC-6 are verified.
+The final macOS and Linux release gates both exit zero. Mori registry and dependency
+source discovery succeeded using the current shell-profile endpoint; no dependency
+bounds changed. FRIC-13 and FRIC-14 are resolved, strict friction validation passes,
+and no entries under this plan remain logged. The actual independently provisioned
+Rei evidence and reproducible caller invocation are recorded below.
 
 
 ## Surprises & Discoveries
+
+2026-11-12: The existing summary-write fallback inferred service failure from numeric exit 4, which is also an ordinary Hurl/check child status. It now tests actual service failures. The regression creates a summary-write error after a check returns 4 and requires exit 3 while retaining the named check result.
+
+2026-11-12: Cancellation can arrive after the check leader exits while a descendant holds the TERM grace open. Cleanup now runs as its own bounded task and is joined before propagating an interruption; a regression test cancels specifically during that interval and verifies the observed cancelled result and absence of a live descendant.
+
+2026-11-12: Cabal sdist deliberately assigns 0644 to every extra-source file, including executable helpers (FRIC-14 in `docs/friction-log/`). The release wrapper now normalizes only the two declared helper tar entries to 0755 before unpacking; the archive acceptance runs their actual checks rather than repairing extracted files.
 
 2026-11-12: The inherited Mori endpoint was stale; the current shell profile endpoint restored registry discovery without changing user configuration (FRIC-13 in `docs/friction-log/`). Checks-only suites require lists for aggregate Hurl cases and metadata while each prepared Hurl batch remains nonempty. Existing lifecycle scheduling and service monitors otherwise compose directly with a Check barrier.
 
 
 ## Decision Log
+
+2026-11-12: Release archives use `scripts/build-sdist.sh` after Cabal source listing, with narrowly declared executable tar modes. This preserves the executable-file check contract in distributed examples without weakening validation or requiring manual chmod after extraction. ADR 8 records the packaging constraint.
 
 
 2026-11-11: Require each check executable to be a workspace-relative executable file with a canonical target inside the workspace. Service commands retain their current executable lookup semantics. This check-specific rule prevents accidental changes to the existing service interface.
@@ -68,6 +81,45 @@ Implementation checkpoint: milestones 1–3 are implemented and tested. Mileston
 
 
 ## Outcomes & Retrospective
+
+All four milestones are complete on 2026-11-12. Named workspace executables now
+run once as ordered barriers, with Plain-only argv substitution, explicit Secret
+environments, whole-suite preflight, finite process ownership, private captures,
+truthful ordered outcomes and global fail-fast. Checks-only suites preserve empty
+Hurl collections without dummy requests. Service monitoring and cleanup/teardown
+remain active around checks.
+
+The final `nix develop -c just check` and `just linux-check` invocations both exit
+zero. Each runs 135 core tests and 52 CLI tests, compatibility and release-copy
+checks, live examples, performance, unpacked source distributions and Nix checks.
+The Linux gate uses the unmodified final source snapshot in a disposable Apple
+ARM64 container. Packaged examples actually execute the matching and deliberately
+failing checks after archive extraction, with executable helper modes preserved.
+The final regression distinguishes child status 4 from a true lifecycle failure
+when summary writing fails. Cancellation is also exercised during descendant
+cleanup after leader exit.
+
+The real Rei consumer proves persisted category parity through supported CLI and
+paged HTTP APIs on two independent Hinagata clones, then observes a meaningful
+one-versus-two-category mismatch. Both process groups stop before caller release,
+and tokens remain absent from argv, ordinary logs and summaries. It does not
+claim complete Rei operation coverage, semantic event-count coverage or a newer
+Rei cohort. The recorded binary evidence remains applicable after the subsequent
+summary-error priority fix, which changes only the reporting-failure path; both
+platform release gates exercise that final fix.
+
+[FRIC-13](../friction-log/13-inherited-mori-endpoint-uses-retired-postgresql-socket.md)
+is resolved by a command-local selection of the already-declared current database
+endpoint. No user configuration was changed.
+[FRIC-14](../friction-log/14-cabal-source-archives-discard-executable-helper-modes.md)
+is resolved by the explicit release archive normalization boundary and unpacked
+behavioral acceptance. Direct Cabal source archives retain their upstream ordinary
+modes; the documented release wrapper preserves the declared helpers.
+
+Durable ownership, reporting and packaging decisions are distilled into ADRs
+[6](../adr/6-managed-service-process-group-lifecycle.md),
+[7](../adr/7-suite-preflight-safety-and-report-isolation.md) and
+[8](../adr/8-self-contained-multi-package-release-builds.md). No required work remains.
 
 
 ## Context and Orientation
@@ -177,6 +229,44 @@ bash scripts/check-command-parity.sh
 
 Record the actual provider/consumer invocation and sanitized observations in the plan when known. The script must prove both a match and a mismatch; no invented external command syntax is an acceptance substitute.
 
+Actual provider/consumer acceptance (2026-11-12) uses the existing matching Rei
+8.0.0.0 API, CLI and live schema-hook cohort, discovered through Mori. The CLI
+reports `rei 8.0.0.0 (8c5e112)` from
+`mori://shinzui/rei/commits/8c5e11258f97b66600ce53269bd9675d9459db52`.
+The helper is the application-specific executable in
+`examples/executable-checks/rei/parity.py`; it uses supported CLI category JSON and
+bounded paged category HTTP reads, with no framework-table reads. The caller uses
+two separate Hinagata leases with different database names and endpoint origins.
+
+```bash
+export hinagata_postgres_datadir="$(mori path mori://shinzui/hinagata)/hinagata-postgres"
+nix develop -c python3 scripts/check-rei-command-parity.py \
+  --api "$REI_API_EXECUTABLE" --rei "$REI_CLI_EXECUTABLE" \
+  --schema-hook "$REI_LIVE_TEST_EXECUTABLE" --hinagata "$HINAGATA_EXECUTABLE" \
+  --workbench "$HURL_WORKBENCH_EXECUTABLE" --evidence-root /tmp/new-rei-parity-evidence
+```
+
+The final private evidence at `/tmp/hurl-plan13-rei-parity-final` records a matching
+check status 0 with one category on each side. A supported HTTP POST creates one
+extra category only on the HTTP twin, producing named `parity` status 1 and the
+private diagnostic `persisted category parity differs: CLI 1, HTTP 2`. Both summaries
+retain relative stdout/stderr paths and durations; token sentinels are absent from
+summaries and ordinary driver logs. Caller evidence confirms both owned process
+groups absent before the two `Released` inspections, at ordered timestamps
+1794493944942716000 < 1794493945248583000 < 1794493945385697000.
+
+The verified executable SHA-256 values are API
+`ab17dca4bbcaffba3c208ea15a71f5e64702ff006651a89006eefeced3cb228f`, CLI
+`1ed16aea8704564f790728df158418623080f4485f64e61acf7917805fee2ea5`, live schema hook
+`2ff95770918cd6a2b905719ba01092a13cdb7ce6103ff48b750d8f30e8219b19`, Hinagata
+`6286db4cc911c94d6054d77e71f5e1315c8899ca27e9126bbb1852edf7d1cf1a`, and workbench
+`6e2bb6629ac7f1953c40f9687f6b260ccb8ae37922aa509e2d0246159276f421`.
+The example's matching recipe/check/recipe suite uses jobs=2; the mismatch mutation
+is authorized and serial. No Rei source, production service or production database
+was modified. These are persisted-fact parity observations, not an event-count or
+newer Rei-cohort acceptance claim.
+
+
 
 ## Validation and Acceptance
 
@@ -197,6 +287,6 @@ Checks execute once; the workbench never retries a side-effecting assertion impl
 ## Interfaces and Dependencies
 
 
-Public additions are `Check`, `CheckName`, `Workspace.checks`, `RunReference.Check`, and `list checks`. The core `ResolvedCheck`/`CheckResult` interfaces keep expected/actual status, timing, process outcome, and cleanup diagnostics separate. The ordered suite scheduler introduced by IR-1 is the sole owner of barriers and global fail-fast. The common process-group primitive owns bounded termination; IR-6 owns final environment selection. IR-2 generation and IR-3 file roots remain Hurl execution inputs and are not implicitly inherited by checks.
+Public additions are `Check`, `CheckName`, `Workspace.checks`, `RunReference.Check`, and `list checks`. The core `ResolvedCheck`/`CheckResult` interfaces keep expected/actual status, timing, process outcome, and cleanup diagnostics separate. `PreparedSuite.cases`, `SuiteResult.cases` and `SuiteMetadata.scenarios` are now lists so they can represent checks-only suites; individual prepared Hurl batches remain nonempty. The ordered suite scheduler introduced by IR-1 is the sole owner of barriers and global fail-fast. The common process-group primitive owns bounded termination; IR-6 owns final environment selection. IR-2 generation and IR-3 file roots remain Hurl execution inputs and are not implicitly inherited by checks.
 
 Use existing process, concurrency, filesystem, and time dependencies; no new version bounds are selected. Before unfamiliar API use, retry `mori registry list`, relevant package searches, owning-project `show --full` and `docs`, and read the returned local sources. Confirm any proposed library version change against its authoritative package registry and upstream tags. Keep cross-repository evidence linked with canonical Mori URIs, and preserve local references to these sibling plans without adding an unrelated MasterPlan.

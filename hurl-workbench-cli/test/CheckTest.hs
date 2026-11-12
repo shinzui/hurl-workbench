@@ -16,7 +16,7 @@ import Network.HTTP.Types (status200)
 import Network.Wai (Application, pathInfo, responseLBS)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure)
-import System.Directory (canonicalizePath, doesFileExist)
+import System.Directory (canonicalizePath, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -62,6 +62,14 @@ tests =
           summary <- Text.IO.readFile (root </> "reports" </> "mismatch" </> "summary.json")
           assertBool "explicit later check skip" ("skipped-fail-fast" `Text.isInfixOf` summary)
           assertBool "named mismatch" ("\"actualStatus\":7" `Text.isInfixOf` summary),
+      testCase "ordinary failures use declaration order and a later spawn failure retains exit 3 priority" $
+        fixture $ \root manifest -> do
+          firstHurl <- invoke root manifest "hurl-first" []
+          firstHurl ^. #exitCode @?= ExitFailure 4
+          firstCheck <- invoke root manifest "check-first" []
+          firstCheck ^. #exitCode @?= ExitFailure 7
+          spawnFailure <- invoke root manifest "spawn-race" []
+          spawnFailure ^. #exitCode @?= ExitFailure 3,
       testCase "checks-only supports expected nonzero and missing reports refuse before execution" $
         fixture $ \root manifest -> do
           missing <- command root manifest ["test", "suite", "only", "--secrets-file", root </> "secrets"]
@@ -122,8 +130,8 @@ fixture action = withSystemTempDirectory "check-cli" $ \directory -> do
   setFileMode (root </> "secrets") 0o600
   lock <- newMVar ()
   testWithApplication (pure (application lock root)) $ \port -> do
-    for_ ["before1", "before2", "after1", "after2"] $ \name ->
-      Text.IO.writeFile (root </> name <> ".hurl") ("GET http://127.0.0.1:" <> Text.pack (show port) <> "/" <> Text.pack name <> "\nHTTP 200\n")
+    for_ ["before1", "before2", "after1", "after2", "fail", "remove"] $ \name ->
+      Text.IO.writeFile (root </> name <> ".hurl") ("GET http://127.0.0.1:" <> Text.pack (show port) <> "/" <> Text.pack name <> (if name == "fail" then "\nHTTP 201\n" else "\nHTTP 200\n"))
     let manifest = root </> "hurl-workbench.dhall"
     Text.IO.writeFile manifest (source (Text.pack schema))
     action root manifest
@@ -132,6 +140,7 @@ application :: MVar () -> FilePath -> Application
 application lock root request respond = do
   let label = Text.unpack (Text.intercalate "/" (pathInfo request))
   withMVar lock $ \_ -> appendFile (root </> "events") (label <> "-start\n")
+  when (label == "remove") (removeFile (root </> "check.py"))
   threadDelay 60000
   withMVar lock $ \_ -> appendFile (root </> "events") (label <> "-end\n")
   respond (responseLBS status200 [] "ok")
@@ -154,11 +163,14 @@ source schema =
       " S.Suite::{name = \"mismatch\", runs = [S.RunReference.Recipe \"before1\", S.RunReference.Check \"mismatch\", S.RunReference.Recipe \"after1\", S.RunReference.Check \"later\"]},",
       " S.Suite::{name = \"only\", runs = [S.RunReference.Check \"expected\"]},",
       " S.Suite::{name = \"late\", runs = [S.RunReference.Recipe \"before1\", S.RunReference.Check \"bad\"]},",
+      " S.Suite::{name = \"hurl-first\", runs = [S.RunReference.Recipe \"fail\", S.RunReference.Check \"mismatch\"]},",
+      " S.Suite::{name = \"check-first\", runs = [S.RunReference.Check \"mismatch\", S.RunReference.Recipe \"fail\"]},",
+      " S.Suite::{name = \"spawn-race\", runs = [S.RunReference.Recipe \"fail\", S.RunReference.Recipe \"remove\", S.RunReference.Check \"mismatch\"]},",
       " managed \"managed-failure\" (S.RunReference.Check \"mismatch\"), managed \"service-death\" (S.RunReference.Check \"death\"),",
       " S.Suite::{name = \"timeout\", runs = [S.RunReference.Check \"timeout\", S.RunReference.Recipe \"after1\"]}, S.Suite::{name = \"cancel\", runs = [S.RunReference.Check \"cancel\"]} ] }"
     ]
   where
-    names = ["before1", "before2", "after1", "after2"]
+    names = ["before1", "before2", "after1", "after2", "fail", "remove"]
 
 checkScript :: Text
 checkScript =

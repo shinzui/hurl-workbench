@@ -134,3 +134,7 @@ have the same sensitivity as Hurl reports. Service lifecycle exit 4 and report/s
 exit 3 retain their priorities; ordinary Hurl/check failures select in declaration
 order, and check timeout selects 124. Asynchronous cancellation finalizes partial
 check observations before the suite writes its summary and rethrows.
+
+Exit priority follows the typed failure cause: an ordinary child status 4 does
+not become a service lifecycle failure. A summary-write failure overrides that
+child status with 3; only an actual service lifecycle failure retains priority 4.

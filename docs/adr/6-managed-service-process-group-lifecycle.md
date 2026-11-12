@@ -114,3 +114,9 @@ is rethrown. Normal exits alone compare expected status; mismatch, timeout,
 signal, cancellation and launch failure retain distinct outcomes. Cleanup diagnostics
 never replace the primary assertion outcome. Service monitors remain active during
 checks and cancel the group before service cleanup and teardown.
+
+A check can also be cancelled during descendant cleanup after its leader has
+already exited. Its cleanup runs in an independently bounded task; the parent
+joins that task before reporting cancellation and propagating the exception.
+The cleanup task retains its own timeout even when the parent must wait without
+accepting another interruption. No child ownership is abandoned during TERM grace.

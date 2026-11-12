@@ -244,6 +244,7 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
       exitCode
         | cancelled = ExitFailure 130
         | not (null allServiceErrors) = ExitFailure 4
+        | any startFailed stepResults = ExitFailure 3
         | otherwise = selectStepExit stepResults
       stepResults =
         concat
@@ -276,7 +277,7 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
       pure (Just path <$ written)
   let finished = case summary of
         Right path -> provisional & #summaryPath .~ path
-        Left message -> provisional & #summaryError .~ Just message & #selectedExitCode .~ (if exitCode == ExitFailure 4 then exitCode else ExitFailure 3)
+        Left message -> provisional & #summaryError .~ Just message & #selectedExitCode .~ (if null allServiceErrors then ExitFailure 3 else ExitFailure 4)
   case execution of
     Left err -> throwIO err
     Right _ -> pure finished
@@ -305,6 +306,11 @@ prerequisiteFailed batchCase =
       outputPath = Nothing,
       capturedOutput = Nothing
     }
+
+startFailed :: StepOutcome -> Bool
+startFailed (HurlStep result) = case result ^. #outcome of CaseStartFailed _ -> True; _ -> False
+startFailed (CheckStep result) = result ^. #outcome == CheckStartFailed
+startFailed (LifecycleStep _) = False
 
 selectStepExit :: [StepOutcome] -> ExitCode
 selectStepExit results = fromMaybe fallback (firstFailure results)

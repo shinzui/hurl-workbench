@@ -388,3 +388,29 @@ For suite-wide parameter sources, declare a Plain parameter and set
 file, its declared environment, or a default. Relative parameter values use the workspace root.
 CLI `--file-root` takes precedence and needs no shadowed parameter value. Inspection stays static.
 See [the runnable exact-byte example](../../examples/file-body/README.md).
+
+## Assertions beyond HTTP
+
+Declare an explicit Check when a supported application CLI or semantic API must
+establish a fact Hurl cannot express. A check executes once at its declared place
+in `runs`; all earlier Hurl work finishes first and later work waits for check
+cleanup. Name the executable in the workspace, use Plain argv parameters for
+fixture identities/endpoints, and bind credentials only through its environment.
+The check executes alone even when adjacent read-only Hurl batches use jobs=2.
+Checks are explicit suite steps; arbitrary pre/post hooks remain outside this API.
+
+See [the executable-check example](../../examples/executable-checks/README.md) for
+recipe/check/recipe ordering and a real failed comparison. The
+[Rei fixture](../../examples/executable-checks/rei/README.md) compares persisted
+categories through supported CLI and paged HTTP reads on two independent Hinagata
+clones. Its caller provisions and releases fixtures; workbench owns only the suite
+steps and check process group. The deliberately mismatching API mutation runs
+serially with explicit authorization. Package/schema/client gates keep their own
+existing owners.
+
+Supply a fresh `--report-dir`. Check stdout/stderr are sensitive private files,
+while `summary.json` names the result and relative artifact paths. An expected
+nonzero status can pass. Keep-going continues after a mismatch or timeout only
+when cleanup succeeded; fail-fast skips subsequent Hurl and check steps. Service
+monitoring remains active during a check and service cleanup still precedes teardown
+on check failure or cancellation.

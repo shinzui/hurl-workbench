@@ -31,7 +31,7 @@ prepareCheck ambient workspace input name = case (lookupCheck name workspace, lo
   (Just check, Just executable) -> case traverse parseTemplate (check ^. #command . #arguments) of
     Left _ -> pure (Left CheckTemplateInvalid)
     Right templates -> do
-      let required = Set.fromList ([p | parts <- templates, Placeholder p <- parts] <> map (view #parameter) (check ^. #command . #environment))
+      let required = Set.fromList ([p | templateParts <- templates, Placeholder p <- templateParts] <> map (view #parameter) (check ^. #command . #environment))
       resolveParameterSubsetInEnvironment ambient workspace required input <&> \case
         Left err -> Left (CheckBindingFailed err)
         Right bindings -> do

@@ -18,6 +18,7 @@ module HurlWorkbench.Workspace.Validate
   )
 where
 
+import Control.Exception (IOException, try)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Generics.Labels ()
 import Data.List (sortOn)
@@ -362,10 +363,15 @@ validateChecks root ws = do
         spec = check ^. #command
         relative = Text.unpack (spec ^. #executable)
     common <- commandIssues root ws name (loc <> "/command") spec
-    target <-
-      if ".." `elem` splitDirectories relative
-        then pure (Left "executable path must not contain parent traversal")
-        else checkContainedPath root relative FileEntry
+    inspected <-
+      try @IOException $
+        if Text.any (== '\0') (spec ^. #executable)
+          then pure (Left "executable path must not contain NUL")
+          else
+            if ".." `elem` splitDirectories relative
+              then pure (Left "executable path must not contain parent traversal")
+              else checkContainedPath root relative FileEntry
+    let target = either (const (Left "could not inspect check executable")) id inspected
     executableResult <- case target of
       Left problem -> pure (Left problem)
       Right path -> do
@@ -376,18 +382,18 @@ validateChecks root ws = do
             <> [issue name (loc <> "/command/executable") problem | Left problem <- [executableResult]]
             <> [issue name (loc <> "/expectedStatus") "expected status must be between 0 and 255" | check ^. #expectedStatus > 255]
             <> maybe [] (positive name (loc <> "/timeoutSeconds")) (check ^. #timeoutSeconds)
-            <> concat [argumentIssues name (loc <> "/command/arguments/" <> tshow ordinal) argument | (ordinal, argument) <- zip [0 :: Int ..] (spec ^. #arguments)]
+            <> concat [argumentIssues name (loc <> "/command/arguments/" <> tshow ordinal) arg | (ordinal, arg) <- zip [0 :: Int ..] (spec ^. #arguments)]
     pure (problems, (check ^. #name,) <$> either (const Nothing) Just executableResult)
   pure (nameIssues "checks" isValidEntityName entityNameRule (map (unCheckName . view #name) (ws ^. #checks)) <> concatMap fst checked, Map.fromList (mapMaybe snd checked))
   where
-    argumentIssues key loc argument = case parseTemplate argument of
+    argumentIssues key loc arg = case parseTemplate arg of
       Left problem -> [issue key loc problem]
-      Right parts ->
+      Right templateParts ->
         concat
           [ case filter ((== name) . view #name) (ws ^. #parameters) of
               [] -> [issue key loc ("unknown parameter " <> quote (unParameterName name))]
               parameter : _ -> [issue key loc "only Plain parameters may appear in check arguments" | parameter ^. #kind /= Plain]
-          | Placeholder name <- parts
+          | Placeholder name <- templateParts
           ]
 
 --------------------------------------------------------------------------------

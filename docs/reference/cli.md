@@ -13,7 +13,7 @@ invocations, and parse errors show contextual help.
 | Command | Purpose | Primary output |
 |---|---|---|
 | `validate` | Decode, semantically validate, and Hurlfmt-check every workflow. | Counts on stdout; diagnostics on stderr. |
-| `list [CATEGORY]` | List `all`, `parameters`, `fragments`, `workflows`, `recipes`, `matrices`, `services`, or `suites`. | Stable tables on stdout. |
+| `list [CATEGORY]` | List `all`, `parameters`, `fragments`, `workflows`, `recipes`, `matrices`, `checks`, `services`, or `suites`. | Stable tables on stdout. |
 | `render workflow NAME` | Compose and Hurlfmt-check a workflow. | Hurl on stdout or atomically to `--output FILE`. |
 | `render recipe NAME` | Render a recipe's selected workflow; `--explain` lists binding sources without values. | Hurl on stdout; explanation/path on stderr. |
 | `run workflow|recipe NAME` | Execute in Hurl client mode. | Hurl streams directly to the terminal. |
@@ -143,3 +143,24 @@ including symlink aliases and overwrite ancestors. Explicitly selecting the work
 this rule too; the default allows the existing workspace-local report layout.
 The caller keeps the directory alive and readable until execution finishes and owns its cleanup.
 See [the byte-preserving example](../../examples/file-body/README.md).
+
+## Executable check results
+
+`list checks` displays logical check names, expected status, timeout and description.
+Validation counts checks. `test suite` requires `--report-dir` for a check-bearing
+suite, even without a Hurl report format. It emits named `CHECK` status/path lines
+on stderr; captured check stdout/stderr are kept private and are never replayed.
+
+The ordered `steps` summary adds `kind: "check"`, `name`, `status`, `expectedStatus`,
+`actualStatus`, `elapsedSeconds`, suite-relative `stdout` and `stderr`, and separate
+`cleanupDiagnostics`. Skips identify fail-fast, prerequisite failure or cancellation.
+Legacy Hurl `cases` and service fields remain; checks-only suites have empty cases.
+
+Fail-fast spans all batches and barriers. Keep-going permits later work after an
+ordinary mismatch or timeout with successful group cleanup. Service death or
+uncertain cleanup aborts later work. A mismatched nonzero status is preserved;
+unexpected zero selects 1, timeout selects 124, signal selects 128 plus the signal
+number, and launch or cleanup-only failure selects 3. Ordinary Hurl/check failures
+are chosen in declaration order. Service lifecycle failure retains exit 4 priority,
+and summary-write failure selects 3 unless a service failure already selects 4.
+Cancellation preserves partial observations and rethrows after finalization.

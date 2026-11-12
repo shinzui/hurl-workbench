@@ -2,6 +2,15 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-14 resolved: Resolve source archive mode loss with a verified release archive normalization boundary.
+
+
+* **Addition**: FRIC-14 records detour tooling friction with mori://haskell/cabal: Cabal source archives discard executable helper modes
+
+
+* **Update**: FRIC-13 resolved: Resolve the inherited endpoint detour with verified current shell configuration.
+
+
 * **Addition**: FRIC-13 records detour environment friction with mori://shinzui/mori: Inherited Mori endpoint uses retired PostgreSQL socket
 
 

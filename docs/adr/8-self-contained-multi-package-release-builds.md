@@ -89,3 +89,23 @@ files by hand.
 The Linux release driver selects `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` after entering
 the Nix shell. This makes Unicode filesystem fixtures reproducible in the minimal
 container image, whose inherited locale otherwise defaults to ASCII.
+
+## Executable resources in source archives (2026-11-12)
+
+Cabal sdist intentionally assigns ordinary 0644 permissions to every source file,
+including executable extra-source-files. Workspace checks require an executable
+file, so [Plan 13](../plans/13-run-executable-checks-as-ordered-suite-barriers.md)
+uses `scripts/build-sdist.sh` for release archives. It runs Cabal then normalizes
+only the two declared parity-helper tar entries to 0755 without extracting the
+archive or changing other metadata. `scripts/check-sdist.sh` builds these canonical
+archives, asserts the extracted helpers are executable and runs the actual packaged
+recipe/check/recipe and mismatch examples. Direct `cabal sdist` retains Cabal's
+ordinary modes; use the release wrapper when preparing publishable archives.
+
+The authoritative Hackage registry and upstream release tag were checked on
+2026-11-12: cabal-install 3.18.2.0 is the current normal release, upstream commit
+`mori://haskell/cabal/commits/45f982c12ef78ea8ec5beb43cb8c71c8e8f237c1`.
+Its source still assigns ordinaryFilePermissions. The owning project is
+`mori://haskell/cabal`; the source path is
+`cabal-install/src/Distribution/Client/SrcDist.hs` (artifact-level URI pending).
+This is a release packaging boundary, not a dependency pin or version upgrade.

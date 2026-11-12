@@ -76,6 +76,7 @@ examples: cabal-index
     echo "examples: PASS"
     HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" HURL_WORKBENCH_FIXTURE_EXECUTABLE="$(cabal list-bin hurl-workbench-fixture-server)" python3 scripts/check-multi-service-local.py
     HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-file-root-permissions.py
+    HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-command-parity-local.py
     bash scripts/check-clean-environment-lease-simulation.sh
     HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-scenario-isolation-local.py
 

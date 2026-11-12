@@ -141,3 +141,25 @@ Workbench never owns cleanup or permission changes for caller inputs. Root value
 are absent from structured summaries and root Show output. Hurl argv necessarily contains the
 canonical root, so a suite selector must be Plain. This is a body-file base, not a sandbox for
 arbitrary paths in user-authored Hurl. Source-fragment containment remains unchanged.
+
+## Executable assertions
+
+A named Check is a trusted application executable declared inside the workspace,
+not a shell-string hook. Validation canonicalizes its relative executable file,
+requires execution permission and rejects parent traversal or symlink escape.
+This is a source containment check, not a sandbox for what trusted executable code
+can do. Checks execute once, with closed stdin and an owned POSIX process group.
+Execution defaults to a finite 60 seconds; cleanup has separate five-second TERM
+and five-second KILL/reap budgets, including descendants after leader exit.
+
+Only declared Plain parameters substitute argv elements; Secret and Generated
+placeholders are refused. Secret environment bindings retain the existing explicit
+channel, and Clean policies can exclude irrelevant ambient credentials. Checks use
+suite-wide inputs and cannot silently inherit a recipe's or matrix case's state.
+
+Check-bearing suites require private reports. Captures are created atomically with
+0600 mode before spawn and live under the suite's private checks/name subtree.
+Private output can contain an application's echoed credentials and is not redacted
+response data. Workbench does not replay it into ordinary diagnostics or summaries;
+those contain only logical outcomes, timing, exit statuses, relative paths and
+cleanup codes. Cleanup diagnostics cannot hide the primary assertion failure.

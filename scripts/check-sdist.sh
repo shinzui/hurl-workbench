@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$PWD"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
@@ -8,7 +9,7 @@ sdist_dir="$work_dir/sdist"
 unpack_dir="$work_dir/unpacked"
 mkdir -p "$sdist_dir" "$unpack_dir"
 
-cabal sdist all --output-directory="$sdist_dir"
+bash scripts/build-sdist.sh "$sdist_dir"
 
 core_archive="$sdist_dir/hurl-workbench-core-0.1.0.0.tar.gz"
 cli_archive="$sdist_dir/hurl-workbench-cli-0.1.0.0.tar.gz"
@@ -24,6 +25,8 @@ for required in LICENSE CHANGELOG.md README.md schema/package.dhall; do
 done
 rg -q '/examples/vendor-odata/hurl-workbench.dhall$' <<<"$cli_listing"
 rg -q '/examples/integration-service/hurl-workbench.dhall$' <<<"$cli_listing"
+rg -q '/examples/executable-checks/parity.py$' <<<"$cli_listing"
+rg -q '/examples/executable-checks/rei/parity.py$' <<<"$cli_listing"
 rg -q '/examples/quick-start/hurl-workbench.dhall$' <<<"$cli_listing"
 
 if rg -q '(^|/)(dist-newstyle|build|reports)(/|$)|[.]env$|[.]response$' <<<"$core_listing$cli_listing"; then
@@ -48,6 +51,9 @@ printf '%s\n' \
 (
   cd "$unpack_dir"
   cabal build all
+  test -x hurl-workbench-cli-0.1.0.0/examples/executable-checks/parity.py
+  test -x hurl-workbench-cli-0.1.0.0/examples/executable-checks/rei/parity.py
+  HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin exe:hurl-workbench)" HURL_WORKBENCH_PARITY_EXAMPLE="$unpack_dir/hurl-workbench-cli-0.1.0.0/examples/executable-checks" python3 "$repo_root/scripts/check-command-parity-local.py"
   version_output="$("$(cabal list-bin exe:hurl-workbench)" --version)"
   if [[ "$version_output" != "hurl-workbench 0.1.0.0 (unknown)" ]]; then
     echo "source distribution version fallback is not deterministic: $version_output" >&2
