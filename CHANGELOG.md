@@ -9,6 +9,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Compatible suite isolation declarations, with a shared-state default and early refusal of
+  parallel mutation or unclassified suite runs; standalone mutating matrices require serial jobs.
+
 - Explicit inherited or clean environment policies for managed service and readiness commands,
   with required-name preflight, compatible old manifests, and a caller-owned lease check driver.
 

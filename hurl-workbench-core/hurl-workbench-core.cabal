@@ -59,6 +59,7 @@ library
     HurlWorkbench.Service.Environment
     HurlWorkbench.Service.Resolve
     HurlWorkbench.Service.Run
+    HurlWorkbench.Suite.Isolation
     HurlWorkbench.Suite.Resolve
     HurlWorkbench.Suite.Run
     HurlWorkbench.Workflow.Render

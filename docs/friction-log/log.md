@@ -1,6 +1,12 @@
 # Bundle Update Log
 
 ## 2026-11-12
+
+* **Update**: FRIC-4 resolved: Registry list/search/show/docs succeed with the current profile endpoint; continue dependency and Hinagata integration.
+
+
+* **Addition**: FRIC-4 records blocked environment friction with mori://shinzui/mori: Mori registry unavailable through PostgreSQL tunnel
+
 * **Update**: FRIC-1 resolved: Verified registry search/show/docs against the current local PostgreSQL endpoint; no database service change was necessary.
 
 ## 2026-11-11

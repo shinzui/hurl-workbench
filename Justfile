@@ -37,6 +37,7 @@ schema-check: cabal-index
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/minimal-explicit/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-command/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-http/hurl-workbench.dhall validate
+    cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-suite/hurl-workbench.dhall validate
     echo "schema compatibility: PASS"
 
 performance: cabal-index

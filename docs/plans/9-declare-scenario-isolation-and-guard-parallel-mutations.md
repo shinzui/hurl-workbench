@@ -10,6 +10,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-11-11T20:49:52Z
+  revisions:
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-12T03:27:06Z
+      mode: "implement"
+      note: "Begin implementation of scenario isolation and early parallel mutation guards"
 ---
 
 # Declare scenario isolation and guard parallel mutations
@@ -28,16 +34,18 @@ This implements [IR-5](../improvement-requests/declare-scenario-isolation-and-gu
 ## Progress
 
 
-- [ ] Milestone 1: Compatible isolation declarations and conservative preflight reject shared-state parallel mutation before children start, while supported serial and read-only modes pass.
+- [x] (2026-11-12) Milestone 1: Compatible isolation declarations and early core/CLI guards are implemented. Core tests (83) and CLI tests (35) pass, including frozen populated/empty old schemas, invalid policies, requested parallelism for a single unsafe run, ordered mixed-suite refusals, external mode, opt-in independence, zero capability/syntax hooks, and service/readiness start markers. `just sync-check schema-check` passes. Serial opted-in writes and parallel reads remain supported.
 - [ ] Milestone 2: A validated per-scenario runtime handoff enables bounded independent execution; duplicate or incomplete assignments start no Hurl executions, and an early real lease handoff proves the provider boundary.
 - [ ] Milestone 3: Success, refusal, setup failure, and cancellation produce safe isolation summaries without weakening cleanup, fail-fast, or declaration ordering.
 - [ ] Milestone 4: Public examples, real concurrent database scenarios, documentation, and package validation satisfy every IR-5 acceptance criterion.
 
-Planning handoff: implementation has not started. Mina created the linked intention after retry. Mori registry discovery failed because its local PostgreSQL socket refused connections; provider-specific source discovery and real lease evidence remain required implementation work. No dependency API or Hinagata command has been guessed. This plan is standalone, with no parent MasterPlan.
+Implementation checkpoint (2026-11-12): milestone 1 is implemented and the full macOS `nix develop -c just check` gate passes. Milestones 2–4 remain open. The registry failure was a stale inherited Mori connection string; the command-local endpoint override documented by completed plan 8 restores discovery. FRIC-4 is resolved. Hinagata, Dhall, Aeson, and http-client registry discovery now succeeds. The first Apple-container gate was stopped while realizing the development shell so implementation can continue against a stable final candidate later. Suite.Isolation currently fails closed for every IndependentState declaration, including jobs 1; the scenario-inputs option and runtime handoff are next. Refusal/setup/cancellation summaries remain milestone 3 work. This plan is standalone, with no parent MasterPlan.
 
 
 ## Surprises & Discoveries
 
+
+2026-11-12: plan 8 has landed. Its in-tree command-policy compatibility pass already supplies the exact Dhall expression traversal needed for suite records and empty-list annotations; suite normalization extends that approach without changing dependency versions or introducing new external APIs. Mori source discovery initially failed (FRIC-4), then succeeded with a command-local override from the current shell profile, following the completed plan 8 recovery note. No service restart was needed.
 
 
 ## Decision Log
@@ -61,11 +69,11 @@ Planning handoff: implementation has not started. Mina created the linked intent
 
 A workspace is a Dhall manifest decoded into Haskell values and validated before use. A suite lists workflows, recipes, or matrices. A matrix expands a recipe into one run per case. In this plan a scenario is one expanded run, identified by its existing logical artifact stem, such as `property-page-sizes/small`. Shared state means scenarios can observe or change the same application resources. Independent state means a caller has separately provisioned the resources and service for every scenario. A lease is the provider's temporary allocation of a fixture, held until every consumer has stopped. A handoff is runtime metadata and bindings supplied by that provider; it is not committed workspace configuration.
 
-`schema/Suite.dhall` currently defines name, runs, optional service, failFast, and description. `schema/package.dhall` exports the schema. `hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` defines the corresponding Suite and generic decoder; `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` evaluates, version-checks, and type-checks the full workspace. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates suite references. Schema copies in `hurl-workbench-core/schema/` and `hurl-workbench-cli/schema/` must match the root.
+`schema/Suite.dhall` defines name, runs, optional service, isolation (default SharedState), failFast, and description. `schema/package.dhall` exports the schema. `hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` defines the corresponding Suite and generic decoder; `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` evaluates, version-checks, and type-checks the full workspace. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates suite references. Schema copies in `hurl-workbench-core/schema/` and `hurl-workbench-cli/schema/` must match the root.
 
 `hurl-workbench-core/src/HurlWorkbench/Run/Selection.hs` produces ExpandedRun with Classified ReadOnly, Classified Mutating, or UnclassifiedWorkflow safety. Direct workflows are always unclassified; Hurl source is deliberately opaque. `hurl-workbench-core/src/HurlWorkbench/Run/Prepare.hs` renders, checks syntax, and resolves bindings into PreparedRun. It currently accepts one BindingInput for a whole selection. Independent matrix cases therefore require a new preparation path operating on individual expanded runs with individual runtime inputs.
 
-`hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` currently checks mutation permission after run preparation, prepares report directories, and returns PreparedSuite with one optional ResolvedService. `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` runs the batch inside that service's lifetime and writes summary.json. Preflight errors return before summary creation, and asynchronous cancellation currently escapes before a final summary; both need explicit handling for IR-5.
+`hurl-workbench-core/src/HurlWorkbench/Suite/Isolation.hs` provides the pure early isolation guard, shared by the core suite path and CLI suite/matrix commands. `hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` applies this guard before run preparation, checks serial mutation permission after run preparation, prepares report directories, and returns PreparedSuite with one optional ResolvedService. `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` runs the batch inside that service's lifetime and writes summary.json. Preflight errors return before summary creation, and asynchronous cancellation currently escapes before a final summary; both need explicit handling for IR-5.
 
 `hurl-workbench-core/src/HurlWorkbench/Run/Batch.hs` uses a fixed worker count and a queue. Active cases finish after fail-fast; queued cases become skipped. Observers retain completed results if a service failure interrupts execution. This bounds Hurl concurrency and keeps declaration-ordered results, but does not establish independent server state. `hurl-workbench-core/src/HurlWorkbench/Service/Run.hs` owns only managed service process groups. `hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs` owns Hurl children and temporary secure binding files.
 
@@ -73,7 +81,7 @@ CLI integration lives in `hurl-workbench-cli/src/HurlWorkbench/Cli/Options.hs`, 
 
 Relevant ADRs consulted are [ADR 1](../adr/1-versioned-dhall-workspace-schema.md), requiring versioned schema compatibility; [ADR 2](../adr/2-validated-workspace-boundary.md), requiring validated inputs; [ADR 4](../adr/4-secure-hurl-process-boundary.md), requiring redacted metadata and protected variable files; [ADR 5](../adr/5-bounded-isolated-batch-execution.md), defining bounded workers and truthful ordered outcomes; [ADR 6](../adr/6-managed-service-process-group-lifecycle.md), defining process ownership and cancellation cleanup; [ADR 7](../adr/7-suite-preflight-safety-and-report-isolation.md), requiring whole-suite preflight and isolated report trees; and [ADR 8](../adr/8-self-contained-multi-package-release-builds.md), requiring synchronized release resources. No existing ADR establishes independent database fixtures. The ADR directory currently uses plain Markdown, with no profiled ADR bundle in mori.dhall; preserve that convention.
 
-The originating consumer is `mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract`, and fixture ownership remains with `mori://shinzui/hinagata`. Neither becomes a production dependency here. [Plan 8](8-support-explicit-clean-environments-for-managed-processes.md) separately proposes clean child environments. This plan does not depend on it; if its compatibility normalization lands first, extend that shared normalization rather than implementing a competing decoder.
+The originating consumer is `mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract`, and fixture ownership remains with `mori://shinzui/hinagata`. Neither becomes a production dependency here. [Plan 8](8-support-explicit-clean-environments-for-managed-processes.md) has landed clean child environments. This implementation extends its existing compatibility-normalization approach for suite isolation; the independent runtime handoff remains separate from managed child environment policy.
 
 
 ## Plan of Work

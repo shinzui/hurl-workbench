@@ -417,6 +417,7 @@ validateSuites ws =
       let name = unSuiteName (s ^. #name)
           loc = "suites/" <> name
        in [issue name (loc <> "/runs") "suite must have at least one run" | null (s ^. #runs)]
+            <> [issue name (loc <> "/service") "independent-state suites cannot declare a shared managed service" | s ^. #isolation == IndependentState, isJust (s ^. #service)]
             <> mapMaybe (fmap (issue name (loc <> "/runs")) . unresolvedRun) (s ^. #runs)
             <> [ issue name (loc <> "/service") ("unknown service " <> quote (unServiceName svc))
                | Just svc <- [s ^. #service],

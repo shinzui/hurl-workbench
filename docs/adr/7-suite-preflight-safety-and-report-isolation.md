@@ -26,7 +26,15 @@ must never update one shared report.
 ## Decision
 
 
-Suite preparation resolves every referenced selection in declaration order, renders and validates
+Suite preparation first expands selections and checks application-state isolation in declaration
+order. SharedState is the compatible default. With requested jobs greater than one, mutating or
+unclassified expanded runs fail before formatting, binding resolution, report replacement, or
+service resolution. The CLI repeats this pure guard before Hurl capability probes. Authorization
+does not bypass it. IndependentState cannot declare a shared managed service and currently
+requires a runtime handoff that is not yet implemented. This boundary is separate from the
+existing batch scheduler and managed service ownership.
+
+After isolation permits execution, suite preparation resolves every referenced selection, renders and validates
 every workflow, resolves bindings, applies the mutation gate, checks generated artifact stems,
 derives every report target, and resolves the optional service before execution. Direct workflows
 are unclassified and require the same explicit authorization as mutating recipes. The service uses

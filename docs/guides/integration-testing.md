@@ -12,7 +12,17 @@ deliberately separate.
 
 Put only `ReadOnly` recipes in the default suite. A `Mutating` recipe and a direct workflow both
 require `--allow-mutating`; direct workflows are unclassified because they have no recipe safety
-declaration. Keep auth, CORS, network-perimeter, and other environment-sensitive checks in named
+declaration. Suites default to `Schema.IsolationPolicy.SharedState`. Shared-state writes and
+direct workflows require `--jobs 1` as well as `--allow-mutating`, even when only one scenario
+expands. Parallel shared-state suites must contain only `ReadOnly` recipes. The same rule applies
+to standalone mutating matrices. Separate Hurl sessions do not establish separate application
+state, and `--external-service` does not change the isolation check.
+
+`Schema.IsolationPolicy.IndependentState` reserves an explicit policy for caller-provisioned
+scenario state. It cannot declare a shared managed service. Execution currently refuses this
+policy pending the verified runtime handoff implementation in [plan 9](../plans/9-declare-scenario-isolation-and-guard-parallel-mutations.md).
+
+Keep auth, CORS, network-perimeter, and other environment-sensitive checks in named
 opt-in suites instead of broad filesystem globs.
 
 The repository example has all three shapes:

@@ -13,6 +13,7 @@ import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
+import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Suite.Resolve
 import HurlWorkbench.Suite.Run
 import HurlWorkbench.Workspace.Context
@@ -31,7 +32,38 @@ tests :: TestTree
 tests =
   testGroup
     "integration suites"
-    [ testCase "missing managed environment skips Hurl; external service bypasses policy" $ do
+    [ testCase "parallel unsafe suites are refused before syntax, binding IO, service, or Hurl" $ do
+        workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
+        let request name allowed manage = SuiteRequest (SuiteName name) emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing allowed manage Set.empty Nothing False)
+            forbidden _ _ = assertFailure "syntax validator called"
+            runner = HurlRunner (const (assertFailure "Hurl started"))
+        for_ [False, True] $ \allowed -> for_ [False, True] $ \manage -> do
+          for_ ["mixed", "single-write"] $ \name -> do
+            result <- runSuiteWith forbidden runner trueCapabilities workspace (request name allowed manage)
+            case result of
+              Left err -> do
+                let unsafe = [scenario | SuiteIsolationFailed (SharedStateParallelUnsafe scenario _) <- toList (err ^. #issues)]
+                unsafe @?= if name == "mixed" then ["dangerous-health", "writes/first", "writes/second", "health"] else ["dangerous-health"]
+              Right _ -> assertFailure "unsafe suite started"
+        for_ [1, 2] $ \jobs ->
+          runSuiteWith forbidden runner trueCapabilities workspace (request "independent" True False & #suiteOptions . #jobs .~ positive jobs) >>= \case
+            Left err -> toList (err ^. #issues) @?= [SuiteIsolationFailed IndependentStateHandoffRequired]
+            Right _ -> assertFailure "bare independent declaration started"
+        for_ ["service-started", "readiness-started"] $ \marker ->
+          doesPathExist ("test/fixtures/workspaces/isolation" </> marker) >>= (@?= False),
+      testCase "parallel reads and serial authorized mutations remain supported" $ do
+        workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
+        requests <- newTVarIO []
+        let request name jobs allowed = SuiteRequest (SuiteName name) (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") (literal "http://fixture.test")}) defaultHurlOptions (SuiteOptions (positive jobs) Nothing allowed False Set.empty Nothing False)
+        readResult <- runSuite (recordingRunner requests) trueCapabilities workspace (request "reads" 2 False) >>= requireSuite
+        readResult ^. #selectedExitCode @?= ExitSuccess
+        length <$> readTVarIO requests >>= (@?= 3)
+        write <- runSuite (recordingRunner requests) trueCapabilities workspace (request "single-write" 1 True) >>= requireSuite
+        write ^. #selectedExitCode @?= ExitSuccess
+        runSuite (recordingRunner requests) trueCapabilities workspace (request "single-write" 1 False) >>= \case
+          Left err -> assertBool "serial still requires opt-in" (any isUnsafe (err ^. #issues))
+          Right _ -> assertFailure "unauthorized mutation started",
+      testCase "missing managed environment skips Hurl; external service bypasses policy" $ do
         original <- failureWorkspace
         let context = validatedContext original
             services = map (\service -> service & #command . #environmentPolicy .~ Clean ["HURL_WORKBENCH_TEST_ABSENT_972638"]) (validatedWorkspace original ^. #services)
@@ -114,7 +146,7 @@ fullSuiteRequest directory allowMutating manageService reportFormats reportDirec
       hurlOptions = defaultHurlOptions,
       suiteOptions =
         SuiteOptions
-          { jobs = positive 2,
+          { jobs = positive 1,
             failFastOverride = Nothing,
             allowMutating,
             manageService,

@@ -399,6 +399,33 @@ commandTests =
           length (filter (Text.isPrefixOf "PASS") (result ^. #stderrLines)) @?= 3
           for_ ["first", "second", "third"] $ \caseName ->
             ByteString.readFile (output </> "health-cases" </> caseName <> ".response") >>= (@?= ""),
+      testCase "suite and matrix refusal never probes capabilities or validates syntax" $ do
+        let run argv = do
+              parsed <- successOf (parse argv)
+              runCommandWithDependencies
+                (assertFailure "hurlfmt probe called")
+                (assertFailure "Hurl probe called")
+                (\_ _ -> assertFailure "syntax validation called")
+                (\_ _ -> assertFailure "workspace syntax called")
+                (GlobalOptions (Just (fixtureManifest "isolation")))
+                "."
+                (parsed ^. #cmd)
+        for_ [False, True] $ \allow -> for_ [False, True] $ \external -> do
+          for_ ["mixed", "single-write", "independent"] $ \name -> do
+            result <- run (["test", "suite", name, "--jobs", "2"] <> ["--allow-mutating" | allow] <> ["--external-service" | external])
+            result ^. #exitCode @?= ExitFailure 2
+          for_ ["writes", "single-write"] $ \matrix -> do
+            result <- run (["matrix", matrix, "--mode", "test", "--jobs", "2"] <> ["--allow-mutating" | allow])
+            result ^. #exitCode @?= ExitFailure 2
+        for_ ["service-started", "readiness-started"] $ \marker ->
+          doesPathExist (fixtureDir "isolation" </> marker) >>= (@?= False),
+      testCase "read-only suites retain parallel execution" $
+        withSystemTempDirectory "hurl-workbench-cli-read-suite" $ \dir -> do
+          executable <- writeExitHurl dir 0
+          parsed <- successOf (parse ["test", "suite", "reads", "--jobs", "2", "--external-service", "--variable", "baseUrl=http://fixture.test"])
+          result <- runExecutionCommandAt (fixtureManifest "isolation") (Right (testCapabilities executable)) (parsed ^. #cmd)
+          result ^. #exitCode @?= ExitSuccess
+          length (filter (Text.isPrefixOf "PASS") (result ^. #stderrLines)) @?= 3,
       testCase "suite command gates unsafe runs and writes isolated reports" $
         withSystemTempDirectory "hurl-workbench-cli-suite" $ \dir -> do
           executable <- writeExitHurl dir 0
@@ -407,7 +434,7 @@ commandTests =
               options allowed reports =
                 SuiteCommandOptions
                   { suite = SuiteName "smoke",
-                    jobs = positiveJobs 2,
+                    jobs = positiveJobs 1,
                     failFastOverride = Nothing,
                     allowMutating = allowed,
                     externalService = True,

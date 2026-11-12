@@ -28,5 +28,6 @@
 , Readiness = ./Readiness.dhall
 , Service = ./Service.dhall
 , RunReference = ./RunReference.dhall
+, IsolationPolicy = ./IsolationPolicy.dhall
 , Suite = ./Suite.dhall
 }

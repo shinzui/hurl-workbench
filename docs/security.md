@@ -67,3 +67,13 @@ For PostgreSQL lease consumers, explicitly select PGHOST, PGPORT, PGUSER, PGDATA
 PGPASSFILE when needed. The password file stays protected and owned by the caller until all
 managed consumers stop and the lease is released. Password contents must never enter argv,
 committed manifests, or report metadata. See [integration testing](guides/integration-testing.md).
+
+## Application state and parallel runs
+
+Suite isolation defaults to `SharedState`, including old manifests. A requested job count above
+one permits only explicitly `ReadOnly` recipes; mutating and unclassified runs are refused before
+capability probes, binding IO, report replacement, or service startup. Mutation authorization is
+separate: `--allow-mutating` permits serial writes and does not bypass isolation. Standalone
+mutating matrices require serial execution too. Distinct Hurl sessions isolate client captures
+and cookies; they do not isolate server resources. `IndependentState` currently refuses execution
+until a verified per-scenario handoff is implemented.

@@ -48,6 +48,7 @@ module HurlWorkbench.Workspace.Types
     Readiness (..),
     Service (..),
     RunReference (..),
+    IsolationPolicy (..),
     Suite (..),
   )
 where
@@ -327,11 +328,17 @@ data RunReference
 instance FromDhall RunReference where
   autoWith _ = genericAutoWith (stripConstructorAffixes "" "Run")
 
+-- | Application state sharing between expanded suite scenarios.
+data IsolationPolicy = SharedState | IndependentState
+  deriving stock (Generic, Eq, Show)
+  deriving anyclass (FromDhall)
+
 -- | A named collection of runs, optionally against a managed service.
 data Suite = Suite
   { name :: !SuiteName,
     runs :: ![RunReference],
     service :: !(Maybe ServiceName),
+    isolation :: !IsolationPolicy,
     failFast :: !Bool,
     description :: !(Maybe Text)
   }

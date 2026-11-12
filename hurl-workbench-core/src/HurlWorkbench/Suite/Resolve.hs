@@ -29,6 +29,7 @@ import HurlWorkbench.Run.Batch
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Service.Resolve
+import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context
 import HurlWorkbench.Workspace.Types
@@ -78,6 +79,7 @@ data SuiteRequest = SuiteRequest
 data SuitePreflightIssue
   = SuiteNotFound !SuiteName
   | SuiteRunPreparationFailed !PreparationError
+  | SuiteIsolationFailed !IsolationIssue
   | SuiteUnsafeRun !Text !SafetyDisposition
   | SuiteDuplicateArtifactStem !FilePath
   | SuiteSharedCurlExport !FilePath
@@ -113,6 +115,9 @@ prepareSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either Hurlf
 prepareSuiteWith validateRendered capabilities validated request =
   case lookupSuite (request ^. #suiteName) validated of
     Nothing -> pure (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| [])))
+    Just _
+      | Just problems <- nonEmpty (checkSuiteIsolation validated (request ^. #suiteName) (request ^. #suiteOptions . #jobs)) ->
+          pure (Left (SuitePreflightError (fmap SuiteIsolationFailed problems)))
     Just suite -> do
       selections <- traverse prepareReference (suite ^. #runs)
       serviceResult <- prepareManagedService suite
@@ -300,6 +305,7 @@ renderSuitePreflightError = Text.intercalate "\n" . map renderSuitePreflightIssu
 
 renderSuitePreflightIssue :: SuitePreflightIssue -> Text
 renderSuitePreflightIssue = \case
+  SuiteIsolationFailed issue -> renderIsolationIssue issue
   SuiteNotFound name -> "unknown suite " <> quote (unSuiteName name)
   SuiteRunPreparationFailed err -> renderPreparationError err
   SuiteUnsafeRun name disposition ->

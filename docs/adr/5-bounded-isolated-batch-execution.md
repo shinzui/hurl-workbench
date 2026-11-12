@@ -12,7 +12,7 @@ Origin: [EP-4](../plans/4-add-recipes-matrices-and-exploratory-runs.md) under
 ## Context
 
 
-A matrix expands one recipe into independent Hurl invocations. Starting one thread for every case
+A matrix expands one recipe into separate Hurl invocations. Starting one thread for every case
 can exhaust local resources or exceed a third-party API's concurrency limits. A semaphore around an
 already-started thread also makes fail-fast misleading: every case has been scheduled even when most
 threads are only waiting for a permit.
@@ -52,6 +52,14 @@ The configured concurrency bound applies to processes actually in flight, and fa
 untouched work truthfully unstarted. Completion timing does not change user-visible ordering or exit
 selection. EP-5 can reuse the same case and result model for suites without flattening orchestration
 events into Hurl exits.
+
+Separate Hurl processes isolate client session state, not application state. SharedState suites
+permit requested concurrency greater than one only when every expanded run is explicitly
+ReadOnly. Mutating and unclassified runs are refused before preparation or process probes,
+including when just one run expands. Standalone mutating matrices use the same serial guard.
+Mutation permission remains a separate opt-in; external-service mode does not bypass isolation.
+IndependentState is reserved for verified caller-provisioned scenario resources and currently
+fails closed pending the runtime handoff in [plan 9](../plans/9-declare-scenario-isolation-and-guard-parallel-mutations.md).
 
 Each case performs a complete independent Hurl session, including authentication. This spends more
 requests than shared-session execution but avoids cross-case capture, cookie, and token state. Users

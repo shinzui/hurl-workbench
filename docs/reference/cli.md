@@ -46,6 +46,16 @@ Matrices add `--mode run|test`, `--jobs N`, `--fail-fast`/`--keep-going`, `--out
 fail-fast controls, `--external-service`, repeatable `--report junit|html|json|tap`, `--report-dir`,
 and `--overwrite`.
 
+Suites default to `isolation = Schema.IsolationPolicy.SharedState`, including manifests written
+before the field existed. With `--jobs` greater than one, every expanded run must be a `ReadOnly`
+recipe. Mutating recipes, matrix cases, and unclassified direct workflows fail before capability
+probes, binding resolution, or child starts, even with `--allow-mutating` or `--external-service`.
+Use `--jobs 1 --allow-mutating` for shared-state writes. Standalone mutating matrices also require
+`--jobs 1`. The requested job count controls this check even for one expanded run.
+
+`IndependentState` declarations cannot name a shared managed service and currently fail execution
+with `independent-state-handoff-required`; the per-scenario runtime handoff is still being implemented.
+
 ## Artifacts and reports
 
 Client matrix responses use `OUTPUT/MATRIX/CASE.response`. Suite reports use

@@ -37,7 +37,23 @@ decodingTests :: TestTree
 decodingTests =
   testGroup
     "decoding"
-    [ policyDecodingTests,
+    [ testCase "frozen populated old suites default to shared state" $ do
+        old <- decodeOrFail (fixture "old-suite")
+        shared <- decodeOrFail (fixture "shared-suite")
+        old @?= shared
+        map (view #isolation) (old ^. #suites) @?= [SharedState]
+        independent <- decodeOrFail (fixture "independent-suite")
+        independent @?= (shared & #suites .~ map (\suite -> suite & #isolation .~ IndependentState) (shared ^. #suites)),
+      testCase "invalid isolation values fail typed decode" $
+        withSystemTempDirectory "hurl-isolation" $ \dir -> do
+          schema <- canonicalizePath schemaPackage
+          for_ ["42", "< Wrong >.Wrong"] $ \policy -> do
+            let manifest = dir </> manifestFileName
+            Text.IO.writeFile manifest ("let S = " <> Text.pack schema <> " in S.Workspace::{ schemaVersion = 1, suites = [{ name = \"bad\", runs = [] : List S.RunReference, service = None Text, failFast = False, description = None Text, isolation = " <> policy <> " }] }")
+            decodeWorkspaceFile manifest >>= \case
+              Left DhallFailure {} -> pure ()
+              other -> assertFailure ("expected invalid policy, got " <> show other),
+      policyDecodingTests,
       testCase "frozen old service and readiness records inherit" $
         for_ ["old-command", "old-http"] $ \name -> do
           ws <- decodeOrFail (fixture name)
@@ -131,7 +147,14 @@ validationTests :: TestTree
 validationTests =
   testGroup
     "validation"
-    [ testCase "a complete workspace validates and offers typed lookups" $ do
+    [ testCase "independent suites cannot declare a shared service" $ do
+        original <- validFixture "full"
+        let context = validatedContext original
+            suites = map (\suite -> suite & #isolation .~ IndependentState) (validatedWorkspace original ^. #suites)
+        validateWorkspace (context & #workspace . #suites .~ suites) >>= \case
+          Left issues -> assertBool "service rejected" (any (Text.isInfixOf "cannot declare a shared managed service" . view #message) issues)
+          Right _ -> assertFailure "expected invalid independent managed suite",
+      testCase "a complete workspace validates and offers typed lookups" $ do
         vw <- validFixture "full"
         Map.keys (validatedWorkflows vw) @?= [WorkflowName "list-members", WorkflowName "list-properties"]
         let fragmentsOf name = maybe [] (view #fragments) (lookupWorkflow (WorkflowName name) vw)

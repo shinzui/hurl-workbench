@@ -50,6 +50,10 @@ Compatibility rules for schema version 1:
   schema-version checking, including command types inside readiness unions and empty
   service-list annotations. Explicit malformed policies still fail typed decoding.
   Frozen old command fixtures complement the minimal compatibility pair.
+- Suite isolation defaults to SharedState. After version checking, decoding inserts only missing
+  isolation fields in suite records and their empty-list element types. Existing populated and
+  empty fully specified records remain valid; explicit malformed isolation fields fail typed
+  decoding. Frozen old-suite fixtures complement the minimal compatibility pair.
 - The decoder evaluates the manifest, reads `schemaVersion` from the normalized record,
   and rejects unknown versions before the typed decode. There is no JSON or YAML fallback.
 

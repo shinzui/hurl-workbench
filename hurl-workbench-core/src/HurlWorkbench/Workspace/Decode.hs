@@ -60,7 +60,7 @@ decodeWorkspaceFile path = do
             Just version
               | version /= supportedSchemaVersion ->
                   pure (Left (UnsupportedSchemaVersion path version supportedSchemaVersion))
-              | otherwise -> decodeTyped (normalizeCommandPolicies normalized)
+              | otherwise -> decodeTyped (normalizeSuiteIsolation (normalizeCommandPolicies normalized))
 
     decodeTyped normalized = do
       expected <- trySync (Dhall.expectWithSettings settings decoder normalized)
@@ -128,3 +128,27 @@ normalizeCommandPolicies (Dhall.Core.RecordLit fields) =
             Dhall.Core.Record record -> Dhall.Core.Record (add policyType record)
             other -> other
 normalizeCommandPolicies other = other
+
+-- | Upgrade only suite records and their empty-list element annotations. Explicit
+-- policies still pass through the normal typed decoder without a fallback.
+normalizeSuiteIsolation :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
+normalizeSuiteIsolation (Dhall.Core.RecordLit fields) =
+  Dhall.Core.RecordLit
+    ( Dhall.Map.fromList
+        [(key, if key == "suites" then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
+    )
+  where
+    policyType = Dhall.Core.Union (Dhall.Map.fromList [("SharedState", Nothing), ("IndependentState", Nothing)])
+    shared = Dhall.Core.Field policyType (Dhall.Core.makeFieldSelection "SharedState")
+    upgrade expression =
+      let nested = runIdentity (Dhall.Core.subExpressions (Identity . upgrade) expression)
+          add value record =
+            if all (\key -> isJust (Dhall.Map.lookup key record)) ["name", "runs", "service", "failFast", "description"]
+              && not (isJust (Dhall.Map.lookup "isolation" record))
+              then Dhall.Map.insert "isolation" (Dhall.Core.makeRecordField value) record
+              else record
+       in case nested of
+            Dhall.Core.RecordLit record -> Dhall.Core.RecordLit (add shared record)
+            Dhall.Core.Record record -> Dhall.Core.Record (add policyType record)
+            other -> other
+normalizeSuiteIsolation other = other

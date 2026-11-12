@@ -21,6 +21,7 @@ import HurlWorkbench.Hurl.Run (mkHurlRunner)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Prepare (PreparationError (..))
 import HurlWorkbench.Service.Resolve (renderServiceError)
+import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Suite.Resolve qualified as Suite
 import HurlWorkbench.Suite.Run qualified as Suite
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
@@ -41,6 +42,9 @@ runSuiteCommandWith detectCapabilities validateRendered global currentDirectory 
     Left errors -> pure (cliFailure 2 errors)
     Right validated -> case validateOptions options of
       Just problem -> pure (cliFailure 2 [problem])
+      Nothing
+        | problems@(_ : _) <- checkSuiteIsolation validated (options ^. #suite) (options ^. #jobs) ->
+            pure (cliErrors 2 (map renderIsolationIssue problems))
       Nothing -> case buildRuntimeInputs (options ^. #bindings) (options ^. #hurl) of
         Left errors -> pure (cliErrors 2 errors)
         Right (bindingInput, hurlOptions) ->

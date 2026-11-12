@@ -27,9 +27,10 @@ import HurlWorkbench.Run.Artifact
 import HurlWorkbench.Run.Batch
 import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
+import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context (lookupMatrix)
-import HurlWorkbench.Workspace.Types (MatrixName (..), Safety (..))
+import HurlWorkbench.Workspace.Types (IsolationPolicy (..), MatrixName (..), Safety (..))
 import System.Exit (ExitCode (..))
 import System.FilePath (isAbsolute, (</>))
 import System.IO qualified as IO
@@ -51,6 +52,10 @@ runMatrixWith detectCapabilities validateRendered global currentDirectory matrix
       Nothing -> pure (cliFailure 2 ["unknown matrix \"" <> unMatrixName (matrixOptions ^. #matrix) <> "\""])
       Just matrixDefinition -> case validateMatrixOptions matrixOptions of
         Just problem -> pure (cliFailure 2 [problem])
+        Nothing
+          | Right expanded <- resolveSelection validated (SelectMatrix (matrixOptions ^. #matrix)),
+            problems@(_ : _) <- checkIsolation SharedState (matrixOptions ^. #jobs) (toList expanded) ->
+              pure (cliErrors 2 (map renderIsolationIssue problems))
         Nothing -> case buildInputs matrixOptions of
           Left errors -> pure (cliErrors 2 errors)
           Right (bindingInput, hurlOptions) ->
