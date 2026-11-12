@@ -2,6 +2,9 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-12 resolved: Resolve the locale friction with explicit release-driver environment and cross-platform acceptance evidence.
+
+
 * **Addition**: FRIC-12 records detour environment friction with mori://shinzui/hurl-workbench: Clean Linux release driver defaults to an ASCII filesystem locale
 
 
