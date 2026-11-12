@@ -20,7 +20,27 @@ in  Schema.Project::{
         }
       ]
     , okfBundles =
-      [ Schema.OkfBundle::{ name = "friction-log", path = "docs/friction-log", okfVersion = "0.2", profile = Some "docs/friction-log/profile.dhall", description = Some "Friction met while implementing plans" }
+      [ Schema.OkfBundle::{
+        , name = "capabilities"
+        , path = "docs/capabilities"
+        , profile = Some "docs/capabilities/profile.dhall"
+        , profileBinding = Some
+            ( Schema.ProfileBinding.Published
+                Schema.PinnedImport::{
+                , publisher = "shinzui/okf-profiles"
+                , publisherRef = Some
+                    Schema.MoriRef::{ namespace = "shinzui", name = "okf-profiles" }
+                , export = Some "coordination.capabilities"
+                , version = Some "v0.25.0"
+                , pin = Some
+                    "sha256:ec74cc6f7b8ee1a5af81ee7fc8804f35cf2c9ba4010671d9e881da72eb6719d3"
+                }
+            )
+        , okfVersion = "0.2"
+        , description = Some
+            "Implemented consumer-facing capabilities with stable CAP handles and repository evidence"
+        }
+      , Schema.OkfBundle::{ name = "friction-log", path = "docs/friction-log", okfVersion = "0.2", profile = Some "docs/friction-log/profile.dhall", description = Some "Friction met while implementing plans" }
       , Schema.OkfBundle::{
         , name = "use-cases"
         , path = "docs/use-cases"
