@@ -60,7 +60,7 @@ decodeWorkspaceFile path = do
             Just version
               | version /= supportedSchemaVersion ->
                   pure (Left (UnsupportedSchemaVersion path version supportedSchemaVersion))
-              | otherwise -> decodeTyped (normalizeCommandPolicies (normalizeSuiteLifecycle normalized))
+              | otherwise -> decodeTyped (normalizeParameterKinds (normalizeCommandPolicies (normalizeSuiteLifecycle normalized)))
 
     decodeTyped normalized = do
       expected <- trySync $ do
@@ -177,3 +177,25 @@ normalizeSuiteLifecycle (Dhall.Core.RecordLit fields) =
                   Dhall.Core.Union (Dhall.Map.insert "Service" (Just stepType) alternatives)
             other -> other
 normalizeSuiteLifecycle other = other
+
+-- | Widen the legacy parameter kind in values and empty typed lists. The
+-- original and upgraded expressions both pass Dhall type checking.
+normalizeParameterKinds :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
+normalizeParameterKinds expression =
+  let nested = runIdentity (Dhall.Core.subExpressions (Identity . normalizeParameterKinds) expression)
+      record key type_ = Dhall.Core.Record (Dhall.Map.fromList [(key, Dhall.Core.makeRecordField type_)])
+      generator =
+        Dhall.Core.Union
+          ( Dhall.Map.fromList
+              [ ("Uuid4", Nothing),
+                ("Uuid7", Nothing),
+                ("TypeId", Just (record "prefix" Dhall.Core.Text)),
+                ("Rfc3339Now", Nothing),
+                ("RandomAlphanumeric", Just (record "length" Dhall.Core.Natural))
+              ]
+          )
+   in case nested of
+        Dhall.Core.Union alternatives
+          | Dhall.Map.toList alternatives == [("Plain", Nothing), ("Secret", Nothing)] ->
+              Dhall.Core.Union (Dhall.Map.insert "Generated" (Just generator) alternatives)
+        other -> other

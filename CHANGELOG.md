@@ -9,6 +9,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Add per-execution UUID4, UUID7, TypeID, UTC timestamp, and alphanumeric generated parameters with reproducible runtime overrides.
+
 - Ordered multi-service suites with bounded setup/teardown commands and named Stop/Start/Restart
   barriers between Hurl batches; compatible old manifests and redacted ordered lifecycle results.
 - Process-group cleanup for Hurl and managed commands, including bounded capture cancellation,

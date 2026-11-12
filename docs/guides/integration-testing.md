@@ -359,3 +359,13 @@ HTTP and appears through the real asynchronous owner. The four-mode driver
 requires clean managed environments and refuses jobs=2 mutation before setup.
 The verified cohort is Rei 8.0.0.0 (`8c5e112`); current Rei 9 schema-hook linking
 is tracked as FRIC-7 and is not claimed as accepted by this proof.
+
+## Fresh scenario identifiers
+
+The [generated parameters example](../../examples/generated-parameters/README.md)
+declares a TypeID recipient and proves equality across two Hurl fragments. Its
+read-only matrix and suite can run with `--jobs 2`; each execution owns its inputs.
+To reproduce a failure, supply `--variable recipientId=<previous-id>`. Use a Plain
+parameter and explicit runtime value when setup commands and several Hurl runs
+must share one identity. Generation occurs during preflight, so a case later
+skipped by fail-fast may already have consumed entropy; scheduling never regenerates it.

@@ -49,6 +49,7 @@ library
     HurlWorkbench.Hurl.Capabilities
     HurlWorkbench.Hurl.Format
     HurlWorkbench.Hurl.Run
+    HurlWorkbench.Parameter.Generate
     HurlWorkbench.Parameter.Properties
     HurlWorkbench.Parameter.Resolve
     HurlWorkbench.Prelude
@@ -106,6 +107,7 @@ test-suite hurl-workbench-core-test
   main-is: Main.hs
   other-modules:
     HurlWorkbench.Hurl.RunTest
+    HurlWorkbench.Parameter.GenerateTest
     HurlWorkbench.Parameter.ParameterTest
     HurlWorkbench.Run.SelectionTest
     HurlWorkbench.Service.RunTest
@@ -135,5 +137,6 @@ test-suite hurl-workbench-core-test
     tasty-hunit ^>=0.10,
     temporary ^>=1.3,
     text,
+    time >=1.14 && <1.17,
     typed-process,
     unix,

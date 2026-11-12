@@ -303,8 +303,8 @@ serviceSpec directory name =
           "open(prefix + '-pid', 'a').write(str(os.getpid()) + '\\n')",
           "event('" <> name <> "-start')",
           "time.sleep(0.03)",
-          "open(prefix + '-ready', 'w').write('ready')",
           "event('" <> name <> "-ready')",
+          "open(prefix + '-ready', 'w').write('ready')",
           "while not os.path.exists(prefix + '-die'): time.sleep(0.01)",
           "raise SystemExit(9)"
         ]

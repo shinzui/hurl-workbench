@@ -12,6 +12,7 @@
 { schemaVersion = 1
 , Workspace = ./Workspace.dhall
 , Parameter = ./Parameter.dhall
+, Generator = ./Generator.dhall
 , ParameterKind = ./ParameterKind.dhall
 , Fragment = ./Fragment.dhall
 , Workflow = ./Workflow.dhall

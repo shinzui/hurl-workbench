@@ -117,3 +117,10 @@ adds ordered `steps`, named `services`, `phases`, `primaryFailure`, and separate
 `cleanupDiagnostics`. Phase output lives under private
 `phases/setup/INDEX/` and `phases/teardown/INDEX/` directories when a report root is
 selected. Without reports, captures are temporary and removed at finalization.
+
+Generated inputs appear as `generated (TypeId)` (or their other generator kind)
+in `render ... --explain`. Validate, list, and render inspect declarations without
+reading the clock or entropy. Run/test resolve fresh inputs per Hurl execution;
+`--variable name=value` and `--variables-file` support reproducible overrides.
+Generation failures identify only the parameter and generator kind and fail
+execution preflight with exit status 2.

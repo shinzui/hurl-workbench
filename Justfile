@@ -39,6 +39,7 @@ schema-check: cabal-index
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-http/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-suite/hurl-workbench.dhall validate
     cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-service-suite/hurl-workbench.dhall validate
+    cabal run hurl-workbench -- --workspace hurl-workbench-core/test/fixtures/workspaces/old-parameters/hurl-workbench.dhall validate
     echo "schema compatibility: PASS"
 
 performance: cabal-index
@@ -58,6 +59,9 @@ examples: cabal-index
     VENDOR_ODATA_CLIENT_SECRET=fixture-secret "$workbench" --workspace examples/vendor-odata/hurl-workbench.dhall matrix property-by-mls --mode run --jobs 2 --output-dir "$work_dir/vendor" --variable baseUrl=http://127.0.0.1:18080; \
     VENDOR_ODATA_CLIENT_SECRET=fixture-secret "$workbench" --workspace examples/vendor-odata/hurl-workbench.dhall test workflow co-buyer-investigation --variable baseUrl=http://127.0.0.1:18080 --variable clientId=fixture-client; \
     "$workbench" --workspace examples/vendor-odata/hurl-workbench.dhall test workflow raw-decoding-investigation --variable baseUrl=http://127.0.0.1:18080; \
+    "$workbench" --workspace examples/generated-parameters/hurl-workbench.dhall test recipe recipient; \
+    "$workbench" --workspace examples/generated-parameters/hurl-workbench.dhall test recipe recipient; \
+    "$workbench" --workspace examples/generated-parameters/hurl-workbench.dhall test recipe recipient --variable recipientId=rcp_01h2xcejqtf2nbrexx3vqjhp41; \
     kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""; \
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite default --jobs 2 --report junit --report html --report json --report tap --report-dir "$work_dir/reports"; \
     HURL_WORKBENCH_FIXTURE_EXECUTABLE="$fixture_server" HURL_WORKBENCH_CURL_EXECUTABLE="$(command -v curl)" PORT=1 REI_PG_CONNECTION_STRING=private-rei-sentinel REI_CONFIG=private-config-sentinel MORI_API_URL=private-mori-sentinel "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite clean --report-dir "$work_dir/clean-reports"; \

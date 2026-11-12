@@ -64,6 +64,7 @@ parameterRow :: Parameter -> [Text]
 parameterRow p =
   [ unParameterName (p ^. #name),
     case p ^. #kind of
+      Generated generator -> "generated " <> Text.pack (show generator)
       Plain -> "plain"
       Secret -> "secret",
     maybe "" (displayLiteral . hurlValueLiteralText) (p ^. #defaultValue),

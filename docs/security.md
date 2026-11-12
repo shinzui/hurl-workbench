@@ -113,3 +113,14 @@ even after leader exit, uses bounded TERM/KILL escalation, and reaps leaders bef
 teardown. Restart atomically retires the previous monitor generation before its
 intentional stop. Cleanup failures remain separate from the primary cause, and
 cancellation propagates after finalization. Database leases remain caller-owned.
+
+Generated parameters are ordinary scenario inputs delivered through the same
+owner-only temporary variables files as Plain inputs. Entropy comes from the
+operating system; generation fails on unavailable/short entropy and never falls
+back to timestamps or process identifiers. Random sampling has a finite rejection
+budget. Generation is cancellable. Values are excluded from explanations, debug
+resolved-binding output, and suite summaries. Response bodies and private Hurl
+reports can contain echoed inputs. These generators are not a secret/token API.
+UUID7 and TypeID expose the current millisecond timestamp; no strict monotonic
+ordering is promised. Timestamps and short random strings may coincide even
+though each execution generates independently.

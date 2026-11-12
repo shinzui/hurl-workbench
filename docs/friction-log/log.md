@@ -2,6 +2,18 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-10 resolved: Fix readiness publication ordering in the existing fixture.
+
+
+* **Update**: FRIC-9 accepted: Accept the local registry outage for this implementation without dependency changes.
+
+
+* **Addition**: FRIC-10 records detour tooling friction with mori://shinzui/hurl-workbench: Lifecycle fixture publishes readiness before logging readiness
+
+
+* **Addition**: FRIC-9 records detour environment friction with mori://shinzui/mori: Mori dependency discovery requires unavailable PostgreSQL
+
+
 * **Update**: FRIC-8 resolved: Eliminate shared cross-platform build metadata and host hook writes from the Linux gate.
 
 

@@ -14,6 +14,7 @@ import Data.Version (Version, makeVersion)
 import HurlWorkbench.Hurl.Capabilities
 import HurlWorkbench.Hurl.Format
 import HurlWorkbench.Hurl.Run
+import HurlWorkbench.Parameter.Generate
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Workflow.Render
@@ -89,12 +90,13 @@ runnerTests =
         executable <- writeFakeHurl dir
         rendered <- renderedFixture dir
         secret <- requireSecret "super-secret-fixture"
+        generated <- generateValue defaultGeneratorEnvironment (TypeId (TypeIdOptions "rcp")) >>= either (assertFailure . Text.unpack) pure
         let runLog = dir </> "fake"
             request =
               (baseRequest rendered)
                 { bindings =
                     ResolvedBindings
-                      { variables = Map.singleton (ParameterName "base_url") (literal "http://127.0.0.1"),
+                      { variables = Map.fromList [(ParameterName "base_url", literal "http://127.0.0.1"), (ParameterName "recipientId", generated)],
                         secrets = Map.singleton (ParameterName "token") secret
                       },
                   mode = TestMode
@@ -119,6 +121,8 @@ runnerTests =
         assertBool "variables file" ("--variables-file" `elem` arguments)
         assertBool "secrets file" ("--secrets-file" `elem` arguments)
         assertBool "secret absent from argv" (not (any (Text.isInfixOf "super-secret-fixture") arguments))
+        delivered <- Text.IO.readFile (runLog <> ".variables")
+        assertBool "generated literal delivered unchanged" (("recipientId=" <> hurlValueLiteralText generated) `Text.isInfixOf` delivered)
         hurlEnvironment <- Text.IO.readFile (runLog <> ".hurl-env")
         hurlEnvironment @?= ""
         modes <- Text.lines <$> Text.IO.readFile (runLog <> ".modes")
@@ -247,6 +251,7 @@ writeFakeHurl directory = do
           "previous=''",
           "for arg in \"$@\"; do",
           "  if [ \"$previous\" = '--output' ]; then printf 'fake response\\n' > \"$arg\"; fi",
+          "  if [ \"$previous\" = '--variables-file' ]; then cat \"$arg\" > \"$log.variables\"; fi",
           "  previous=$arg",
           "done",
           "if [ \"${FAKE_QUIET:-0}\" != '1' ]; then printf 'fake stdout\\n'; printf 'fake stderr\\n' >&2; fi",

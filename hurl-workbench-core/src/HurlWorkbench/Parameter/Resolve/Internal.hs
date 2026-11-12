@@ -74,6 +74,7 @@ data BindingIssue
   | InvalidBindingEnvironmentName !ParameterName !Text !BindingSource
   | InvalidPlainBinding !ParameterName !BindingSource !HurlValueLiteralError
   | InvalidSecretBinding !ParameterName !BindingSource !SecretValueError
+  | GeneratorFailure !ParameterName !Generator
   | UnknownDeclaredParameter !ParameterName
   deriving stock (Generic, Eq, Show)
 

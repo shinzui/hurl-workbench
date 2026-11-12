@@ -12,6 +12,8 @@ module HurlWorkbench.Parameter.Resolve
     emptyBindingInput,
     mkSecretValue,
     resolveParameters,
+    resolveParametersWithGenerator,
+    resolveParametersWithLayersAndGenerator,
     resolveParameterSubset,
     resolveParameterSubsetInEnvironment,
     resolveParametersWithLayers,
@@ -30,6 +32,7 @@ import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import HurlWorkbench.Parameter.Generate
 import HurlWorkbench.Parameter.Properties
 import HurlWorkbench.Parameter.Resolve.Internal
 import HurlWorkbench.Prelude
@@ -72,18 +75,25 @@ resolveParameterSubset validated selected = resolveParametersWithMode False vali
 --   highest to lowest precedence. Runtime overrides and variable files remain
 --   above these layers; declared environments and defaults remain below them.
 resolveParametersWithLayers :: ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParametersWithLayers = resolveParametersWithMode True
+resolveParametersWithLayers = resolveParametersWithLayersAndGenerator defaultGeneratorEnvironment
+
+-- | Inject clock/entropy while preserving the committed binding layers.
+resolveParametersWithLayersAndGenerator :: GeneratorEnvironment -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParametersWithLayersAndGenerator env = resolveParametersWithLookup env lookupEnv True
 
 resolveParametersWithMode :: Bool -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParametersWithMode = resolveParametersWithLookup lookupEnv
+resolveParametersWithMode = resolveParametersWithLookup defaultGeneratorEnvironment lookupEnv
 
 -- | Resolve managed consumers from the invocation snapshot, including declared
 -- parameter environments and explicit secret-environment channels.
 resolveParameterSubsetInEnvironment :: [(String, String)] -> ValidatedWorkspace -> Set ParameterName -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParameterSubsetInEnvironment ambient validated selected = resolveParametersWithLookup (pure . (`Map.lookup` Map.fromList ambient)) False validated selected []
+resolveParameterSubsetInEnvironment ambient validated selected = resolveParametersWithLookup defaultGeneratorEnvironment (pure . (`Map.lookup` Map.fromList ambient)) False validated selected []
 
-resolveParametersWithLookup :: (String -> IO (Maybe String)) -> Bool -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
-resolveParametersWithLookup lookupEnvironment rejectUnselected validated selected layers input = do
+resolveParametersWithGenerator :: GeneratorEnvironment -> ValidatedWorkspace -> Set ParameterName -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParametersWithGenerator env validated selected = resolveParametersWithLookup env lookupEnv True validated selected []
+
+resolveParametersWithLookup :: GeneratorEnvironment -> (String -> IO (Maybe String)) -> Bool -> ValidatedWorkspace -> Set ParameterName -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)
+resolveParametersWithLookup generatorEnvironment lookupEnvironment rejectUnselected validated selected layers input = do
   loadedVariables <- loadVariableFiles (input ^. #variableFiles)
   loadedSecrets <- loadSecretFiles (input ^. #secretFiles)
   case (loadedVariables, loadedSecrets) of
@@ -108,7 +118,7 @@ resolveParametersWithLookup lookupEnvironment rejectUnselected validated selecte
                        <> concatMap (unexpected selected) committedVariables
                  ]
               <> kindMismatches parameters selected explicitVariables explicitSecrets fileVariables fileSecrets committedVariables
-      resolved <- traverse (resolveOne lookupEnvironment parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables) (Set.toAscList selected)
+      resolved <- traverse (resolveOne generatorEnvironment lookupEnvironment parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables) (Set.toAscList selected)
       let dynamicIssues = concatMap (\(issues, _, _) -> issues) resolved
           allIssues = staticIssues <> dynamicIssues
       pure $ case nonEmpty allIssues of
@@ -167,17 +177,27 @@ kindMismatches parameters selected explicitVariables explicitSecrets fileVariabl
     one name = case Map.lookup name parameters of
       Nothing -> []
       Just parameter -> case parameter ^. #kind of
+        Generated _ -> [BindingKindMismatch name Plain source | source <- sourcesFor name explicitSecrets <> sourcesFor name fileSecrets]
         Plain -> [BindingKindMismatch name Secret source | source <- sourcesFor name explicitSecrets <> sourcesFor name fileSecrets]
         Secret -> [BindingKindMismatch name Plain source | source <- sourcesFor name explicitVariables <> sourcesFor name fileVariables <> concatMap (sourcesFor name) committedVariables]
 
 sourcesFor :: ParameterName -> Sourced value -> [BindingSource]
 sourcesFor name values = maybe [] (pure . snd) (Map.lookup name values)
 
-resolveOne :: (String -> IO (Maybe String)) -> Map ParameterName Parameter -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [Sourced HurlValueLiteral] -> ParameterName -> IO ([BindingIssue], Maybe (ParameterName, HurlValueLiteral), Maybe (ParameterName, SecretValue))
-resolveOne lookupEnvironment parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables name =
+resolveOne :: GeneratorEnvironment -> (String -> IO (Maybe String)) -> Map ParameterName Parameter -> Sourced HurlValueLiteral -> Sourced Text -> Sourced HurlValueLiteral -> Sourced Text -> [Sourced HurlValueLiteral] -> ParameterName -> IO ([BindingIssue], Maybe (ParameterName, HurlValueLiteral), Maybe (ParameterName, SecretValue))
+resolveOne generatorEnvironment lookupEnvironment parameters explicitVariables explicitSecrets fileVariables fileSecrets committedVariables name =
   case Map.lookup name parameters of
     Nothing -> pure ([], Nothing, Nothing)
     Just parameter -> case parameter ^. #kind of
+      Generated generator -> do
+        environmentValue <- traverse (lookupPlainEnvironment lookupEnvironment name) (parameter ^. #environment)
+        case firstJust [Right <$> Map.lookup name explicitVariables, Right <$> Map.lookup name fileVariables, environmentValue] of
+          Just (Left issue) -> pure ([issue], Nothing, Nothing)
+          Just (Right (value, _)) -> pure ([], Just (name, value), Nothing)
+          Nothing ->
+            generateValue generatorEnvironment generator >>= \case
+              Left _ -> pure ([GeneratorFailure name generator], Nothing, Nothing)
+              Right value -> pure ([], Just (name, value), Nothing)
       Plain -> do
         environmentValue <- traverse (lookupPlainEnvironment lookupEnvironment name) (parameter ^. #environment)
         let selectedValue =
@@ -251,10 +271,12 @@ renderBindingIssue = \case
   InvalidBindingEnvironmentName name environmentName source -> "environment variable name " <> quote environmentName <> " for parameter " <> quoted name <> " from " <> renderSource source <> " is invalid"
   InvalidPlainBinding name source err -> "plain parameter " <> quoted name <> " from " <> renderSource source <> " is invalid: " <> renderHurlValueLiteralError err
   InvalidSecretBinding name source err -> "secret parameter " <> quoted name <> " from " <> renderSource source <> " is invalid: " <> secretError err
+  GeneratorFailure name generator -> "generation failed for parameter " <> quoted name <> " (" <> generatorName generator <> ")"
   UnknownDeclaredParameter name -> "selected parameter " <> quoted name <> " does not exist in the validated workspace"
   where
     quoted = quote . unParameterName
     quote value = "\"" <> value <> "\""
+    kindName (Generated _) = "a plain value"
     kindName Plain = "a plain value"
     kindName Secret = "a secret value"
     secretError SecretContainsLineBreakOrNul = "value contains a line break or NUL character, which Hurl secret files cannot carry"

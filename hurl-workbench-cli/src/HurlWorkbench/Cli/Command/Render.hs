@@ -15,10 +15,13 @@ import HurlWorkbench.Cli.Options (GlobalOptions, RenderOptions)
 import HurlWorkbench.Cli.Output (CommandResult (..), failure)
 import HurlWorkbench.Cli.Workspace (loadValidatedWorkspace)
 import HurlWorkbench.Hurl.Format
+import HurlWorkbench.Parameter.Generate (generatorName)
 import HurlWorkbench.Parameter.Resolve (BindingSource (..))
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Workflow.Render
+import HurlWorkbench.Workspace.Context
+import HurlWorkbench.Workspace.Types
 import System.Directory (canonicalizePath, removeFile, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
@@ -49,7 +52,7 @@ runRenderWith detectCapabilities validateRendered global currentDirectory option
               Right capabilities ->
                 validateRendered capabilities rendered >>= \case
                   Left err -> pure (failure ["error: " <> renderHurlfmtError err])
-                  Right () -> emitRendered currentDirectory options (explanation options expanded) rendered
+                  Right () -> emitRendered currentDirectory options (explanation options expanded <> generatedExplanation validated options expanded) rendered
       Right _ -> pure (failure ["error: render accepts one workflow or recipe, not a matrix"])
 
 emitRendered :: FilePath -> RenderOptions -> [Text] -> RenderedWorkflow -> IO CommandResult
@@ -125,3 +128,13 @@ atomicWrite target bytes =
               hClose handle
               renameFile temporaryPath target
         try (restore writeAndRename `onException` cleanup)
+
+-- Inspection reads declarations only; it has no generator dependency.
+generatedExplanation :: ValidatedWorkspace -> RenderOptions -> ExpandedRun -> [Text]
+generatedExplanation validated options expanded =
+  [ "  " <> unParameterName name <> ": generated (" <> generatorName generator <> ")"
+  | options ^. #explain,
+    name <- expanded ^. #workflow . #workflow . #parameters,
+    Just parameter <- [lookupParameter name validated],
+    Generated generator <- [parameter ^. #kind]
+  ]

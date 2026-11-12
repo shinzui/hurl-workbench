@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-11T21:02:49Z
       mode: "other"
       note: "Complete initial IR plan, link created Mina intention, and check cross-plan acceptance contracts"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-12T05:51:40Z
+      mode: "implement"
+      note: "Implement generated declarations, per-execution resolution, and acceptance coverage"
 ---
 
 # Generate fresh parameters for each workflow execution
@@ -35,11 +40,11 @@ This implements [IR-2](../improvement-requests/add-generated-parameter-kinds-so-
 ## Progress
 
 
-- [ ] Milestone 1: Compatible generator declarations validate statically and rendering identifies generated inputs without generating them.
-- [ ] Milestone 2: Protected binding resolution generates once per execution, honors runtime overrides, and passes deterministic format/error tests.
-- [ ] Milestone 3: Real CLI workflows, matrices, and suites prove sharing within executions, freshness across executions, and release compatibility.
+- [x] (2026-11-12) Milestone 1: Compatible generator declarations validate statically and rendering identifies generated inputs without generating them.
+- [x] (2026-11-12) Milestone 2: Protected binding resolution generates once per execution, honors runtime overrides, and passes deterministic format/error tests.
+- [x] (2026-11-12) Milestone 3: Real CLI workflows, matrices, and suites prove sharing within executions, freshness across executions, and release compatibility.
 
-Planning handoff: implementation has not begun. A Mina intention is linked in frontmatter. Mori registry list/search failed on 2026-11-11 because its PostgreSQL socket refused connections. No new dependency version or API is assumed; source discovery must be retried before introducing unfamiliar dependency calls. The UUID and TypeID format specifications were consulted directly for the data contract below.
+Acceptance evidence (2026-11-12): `nix develop -c just check` and `just linux-check` both finish with `all checks: PASS`. Both platforms pass 116 core tests and 40 CLI tests, plus examples, frozen schema compatibility, source-distribution rebuilds, formatting, synchronization, and Nix checks. The public generated example validates and `render recipe recipient --explain` lists all five generator kinds while retaining placeholders. Live CLI tests prove six distinct generated TypeIDs across direct, matrix, and suite executions, two matching fragment requests per execution, an unchanged explicit override, and value-free summary metadata. Deterministic tests cover entropy failure/cancellation, bounded rejection, UUID/TypeID layouts, protected-file delivery/cleanup, and generation failure before execution preparation succeeds.
 
 
 ## Surprises & Discoveries
@@ -59,6 +64,10 @@ Planning handoff: implementation has not begun. A Mina intention is linked in fr
 
 ## Outcomes & Retrospective
 
+
+Completed on 2026-11-12. All five generator declarations work through the existing protected plain binding channel, independently per prepared execution, with explicit runtime reproduction and legacy schema-version-1 compatibility. The generated example, package copies, reference/security guidance, and [ADR 9](../adr/9-per-execution-generated-inputs.md) carry the durable contract. No implementation milestone remains.
+
+FRIC-9 in `docs/friction-log/` is accepted: Mori's local registry connection remains unavailable, so existing dependencies and bounds were retained and upstream format specifications plus compiled acceptance tests supplied verification. FRIC-10 in `docs/friction-log/` is resolved: the existing lifecycle fixture now logs readiness before publishing its readiness file, eliminating the event-order race encountered during final validation. Both native and Linux full gates pass after the fixture correction.
 
 ## Context and Orientation
 

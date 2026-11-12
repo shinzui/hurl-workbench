@@ -24,6 +24,7 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import HurlWorkbench.Parameter.Generate (validateGenerator)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Workspace.Context.Internal (ValidatedWorkspace (..), WorkspaceContext (..))
 import HurlWorkbench.Workspace.Types
@@ -181,6 +182,8 @@ validateParameters ws =
           | p ^. #kind == Secret,
             isJust (p ^. #defaultValue)
           ]
+            <> [issue name loc "generated parameters must not have a committed defaultValue" | Generated _ <- [p ^. #kind], isJust (p ^. #defaultValue)]
+            <> [issue name loc problem | Generated generator <- [p ^. #kind], Left problem <- [validateGenerator generator]]
             <> [ issue name (loc <> "/defaultValue") (renderHurlValueLiteralError err)
                | Just value <- [p ^. #defaultValue],
                  Left err <- [literalCheck value]
@@ -296,6 +299,7 @@ bindingIssues ws selected key loc bindings =
                | Just p <- [Map.lookup pname parametersByName],
                  p ^. #kind == Secret
                ]
+            <> [issue key bloc "generated parameters cannot be bound to committed values" | Just p <- [Map.lookup pname parametersByName], Generated _ <- [p ^. #kind]]
             <> [ issue key bloc "unknown parameter"
                | Map.notMember pname parametersByName
                ]
@@ -357,6 +361,7 @@ validateServices root ws = do
             <> [ issue name (loc <> "/readiness/expectedStatus") "expected HTTP status must be between 100 and 599"
                | http ^. #expectedStatus < 100 || http ^. #expectedStatus > 599
                ]
+            <> [issue name (loc <> "/readiness/url") "generated parameters cannot be used in readiness URLs" | p <- ws ^. #parameters, Generated _ <- [p ^. #kind], ("{{" <> unParameterName (p ^. #name) <> "}}") `Text.isInfixOf` (http ^. #url)]
             <> positive name (loc <> "/readiness/intervalMilliseconds") (http ^. #intervalMilliseconds)
             <> positive name (loc <> "/readiness/timeoutSeconds") (http ^. #timeoutSeconds)
       CommandReadinessCheck check -> do
@@ -381,6 +386,7 @@ commandIssues root ws key loc spec = do
   pure $
     [issue key (loc <> "/executable") "executable must not be empty" | Text.null (Text.strip (spec ^. #executable))]
       <> [issue key loc "process arguments must not contain NUL" | any (Text.any (== '\0')) (spec ^. #executable : spec ^. #arguments)]
+      <> [issue key loc "generated parameters cannot be used by suite-scoped commands" | b <- spec ^. #environment, p <- ws ^. #parameters, p ^. #name == b ^. #parameter, Generated _ <- [p ^. #kind]]
       <> policyProblems
       <> workingDirectoryProblems
       <> [ issue key (loc <> "/environment") ("environment variable " <> quote v <> " is bound more than once")

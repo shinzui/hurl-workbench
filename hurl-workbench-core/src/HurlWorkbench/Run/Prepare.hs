@@ -7,6 +7,7 @@ module HurlWorkbench.Run.Prepare
     prepareSelectionForSuite,
     prepareSelectionForSuiteWith,
     prepareSelectionWith,
+    prepareSelectionWithGenerator,
     prepareExpandedForSuiteWith,
     buildBatchCase,
     renderPreparationError,
@@ -17,8 +18,10 @@ import Control.Monad (foldM)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import HurlWorkbench.Hurl.Format
 import HurlWorkbench.Hurl.Run
+import HurlWorkbench.Parameter.Generate (GeneratorEnvironment)
 import HurlWorkbench.Parameter.Resolve
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch
@@ -62,6 +65,10 @@ prepareSelectionForSuiteWith = prepareSelectionUsing resolveWorkflowBindingSubse
 
 prepareSelectionWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
 prepareSelectionWith = prepareSelectionUsing resolveWorkflowBindingsWithLayers
+
+-- | Deterministic preflight with an injected clock and entropy provider.
+prepareSelectionWithGenerator :: GeneratorEnvironment -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareSelectionWithGenerator env = prepareSelectionUsing (\validated workflow -> resolveParametersWithLayersAndGenerator env validated (Set.fromList (workflow ^. #parameters)))
 
 prepareSelectionUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)) -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> BindingInput -> HurlOptions -> RunSelection -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
 prepareSelectionUsing resolveBindings validateRendered capabilities validated input hurlOptions selection =

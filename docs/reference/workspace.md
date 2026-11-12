@@ -34,7 +34,7 @@ schema version is `1`.
 
 All `description` fields are `Optional Text` and default to `None Text`.
 
-- `Parameter`: `name`; `kind` (`Plain` by default or `Secret`); optional `defaultValue`; optional
+- `Parameter`: `name`; `kind` (`Plain` by default, `Secret`, or `Generated`); optional `defaultValue`; optional
   `environment`. Secrets cannot have committed defaults.
 - `Fragment`: `name`, workspace-relative `path`, optional `description`. The path must end in
   `.hurl`, resolve to a regular file, and remain inside the workspace root after symlinks are
@@ -132,3 +132,21 @@ The version-1 compatibility conversion adds only missing fields and widens the
 known old Hurl union, including explicit empty-list type annotations. Both the
 original and converted expressions are typechecked; explicit malformed values or
 unknown fields remain errors. Frozen compatibility manifests are unchanged.
+
+## Generated inputs
+
+Use `Schema.ParameterKind.Generated` with `Schema.Generator.Uuid4`, `Uuid7`,
+`TypeId { prefix = "rcp" }`, `Rfc3339Now`, or `RandomAlphanumeric { length = 24 }`.
+See [the complete example](../../examples/generated-parameters/hurl-workbench.dhall).
+TypeID prefixes may be empty, or contain up to 63 lowercase ASCII letters and
+underscores with a letter at each end. Random string length is 1..4096.
+
+Generated inputs reject committed defaults, recipe bindings, and matrix bindings.
+Runtime resolution uses explicit `--variable`, then later variable files, then a
+declared environment variable, then generation. A missing declared environment
+is an error unless a higher-priority binding wins. Secret channels are invalid.
+Each prepared Hurl execution resolves a name once, shared by all its fragments and
+retries. Matrix cases and suite Hurl runs generate independently. Suite commands
+and readiness URLs cannot consume Generated inputs; use Plain inputs to share an
+identity across executions. Schema version 1 still accepts legacy Plain/Secret
+unions, including empty typed parameter lists.

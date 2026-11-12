@@ -33,6 +33,9 @@ module HurlWorkbench.Workspace.Types
     -- * Entities
     Parameter (..),
     ParameterKind (..),
+    Generator (..),
+    TypeIdOptions (..),
+    RandomOptions (..),
     Fragment (..),
     Workflow (..),
     Binding (..),
@@ -174,8 +177,24 @@ renderHurlValueLiteralError = \case
 data ParameterKind
   = Plain
   | Secret
+  | Generated !Generator
   deriving stock (Generic, Eq, Ord, Show)
   deriving anyclass (FromDhall)
+
+-- | Declarative generation; never evaluated during inspection.
+data Generator = Uuid4 | Uuid7 | TypeId TypeIdOptions | Rfc3339Now | RandomAlphanumeric RandomOptions
+  deriving stock (Generic, Eq, Ord, Show)
+  deriving anyclass (FromDhall)
+
+newtype TypeIdOptions = TypeIdOptions {prefix :: Text}
+  deriving stock (Generic, Eq, Ord, Show)
+  deriving anyclass (FromDhall)
+
+newtype RandomOptions = RandomOptions {randomLength :: Natural}
+  deriving stock (Generic, Eq, Ord, Show)
+
+instance FromDhall RandomOptions where
+  autoWith _ = genericAutoWith defaultInterpretOptions {fieldModifier = \name -> if name == "randomLength" then "length" else name}
 
 -- | An externally injected Hurl variable.
 data Parameter = Parameter

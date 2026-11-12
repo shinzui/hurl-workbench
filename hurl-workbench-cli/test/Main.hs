@@ -1,7 +1,10 @@
 module Main (main) where
 
+import Control.Monad (join)
+import Data.Bits ((.&.))
 import Data.ByteString qualified as ByteString
 import Data.Generics.Labels ()
+import Data.IORef
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -27,6 +30,7 @@ import HurlWorkbench.Workflow.Render (RenderedWorkflow, renderRenderError, rende
 import HurlWorkbench.Workflow.Resolve (renderWorkflowError, resolveWorkflow)
 import HurlWorkbench.Workspace.Context (lookupWorkflow)
 import HurlWorkbench.Workspace.Types (MatrixName (..), ParameterName (..), RecipeName (..), SuiteName (..), WorkflowName (..), mkHurlValueLiteral)
+import Network.Wai (queryString)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Options.Applicative (CompletionResult (..), ParserResult (..), defaultPrefs, execParserPure, renderFailure)
 import System.Directory (canonicalizePath, doesPathExist, getPermissions, setOwnerExecutable, setPermissions)
@@ -549,7 +553,63 @@ executionTests :: TestTree
 executionTests =
   testGroup
     "live Hurl execution"
-    [ testCase "client and test modes execute against the shared fixture service" $ do
+    [ testCase "public validation rejects committed generated inputs before execution" $
+        withSystemTempDirectory "generated-invalid" $ \directory -> do
+          schema <- canonicalizePath "schema/package.dhall"
+          source <- Text.IO.readFile "examples/generated-parameters/hurl-workbench.dhall"
+          for_ ["first.hurl", "second.hurl"] $ \file -> ByteString.readFile ("examples/generated-parameters" </> file) >>= ByteString.writeFile (directory </> file)
+          let manifest = directory </> "hurl-workbench.dhall"
+              local = Text.replace "../../schema/package.dhall" (Text.pack schema) source
+          for_
+            [ Text.replace "name = \"recipientId\"" "name = \"recipientId\", defaultValue = Some \"fixed\"" local,
+              Text.replace "name = \"one\"" "name = \"one\", bindings = [ S.Binding::{ parameter = \"recipientId\", value = \"fixed\" } ]" local
+            ]
+            $ \invalid -> do
+              Text.IO.writeFile manifest invalid
+              result <- runTestCommand (GlobalOptions (Just manifest)) "." ValidateCommand
+              result ^. #exitCode @?= ExitFailure 1
+              assertBool "explains generated constraint" (any (Text.isInfixOf "generated parameters") (result ^. #stderrLines))
+              parsed <- successOf (parse ["test", "recipe", "recipient"])
+              blocked <- runCommandWithDependencies (assertFailure "format probe") (assertFailure "Hurl probe") (\_ _ -> assertFailure "format") (\_ _ -> assertFailure "syntax") (GlobalOptions (Just manifest)) "." (parsed ^. #cmd)
+              blocked ^. #exitCode @?= ExitFailure 2,
+      testCase "generated CLI inputs are shared per execution and fresh across concurrent cases" $ do
+        capabilities <- detectHurlCapabilities >>= either (assertFailure . Text.unpack . renderDependencyError) pure
+        received <- newIORef ([] :: [ByteString.ByteString])
+        let app request respond = do
+              for_ (join (lookup "id" (queryString request))) $ \value -> atomicModifyIORef' received (\values -> (value : values, ()))
+              FixtureServer.application request respond
+        testWithApplication (pure app) $ \port -> withSystemTempDirectory "generated-cli" $ \directory -> do
+          let manifest = "examples/generated-parameters/hurl-workbench.dhall"
+              base = "baseUrl=http://127.0.0.1:" <> show port
+              invoke args = do
+                parsed <- successOf (parse args)
+                result <- runExecutionCommandAt manifest (Right capabilities) (parsed ^. #cmd)
+                assertBool (show (result ^. #stderrLines)) (result ^. #exitCode == ExitSuccess)
+                pure result
+              reproduction = "rcp_01h2xcejqtf2nbrexx3vqjhp41"
+          inspected <- invoke ["render", "recipe", "recipient", "--explain"]
+          assertBool "explains generated input" (any (Text.isInfixOf "recipientId: generated (TypeId)") (inspected ^. #stderrLines))
+          readIORef received >>= (@?= [])
+          for_ [1 :: Int, 2] $ \_ -> void (invoke ["test", "recipe", "recipient", "--variable", base])
+          void (invoke ["test", "recipe", "recipient", "--variable", base, "--variable", "recipientId=" <> reproduction])
+          void (invoke ["matrix", "recipients", "--jobs", "2", "--variable", base, "--output-dir", directory </> "matrix"])
+          void (invoke ["test", "suite", "recipients", "--jobs", "2", "--variable", base, "--report", "json", "--report-dir", directory </> "suite"])
+          values <- readIORef received
+          length values @?= 14
+          let generated = filter (/= "rcp_01h2xcejqtf2nbrexx3vqjhp41") values
+              counts = Map.fromListWith (+) [(value, 1 :: Int) | value <- generated]
+          Map.size counts @?= 6
+          Map.elems counts @?= replicate 6 2
+          for_ (Map.keys counts) $ \value -> do
+            ByteString.take 4 value @?= "rcp_"
+            ByteString.length value @?= 30
+            let alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+                decoded = foldl (\acc byte -> acc * 32 + fromIntegral (fromMaybe (-100) (ByteString.elemIndex byte alphabet))) (0 :: Integer) (ByteString.unpack (ByteString.drop 4 value))
+            (decoded `div` 2 ^ (76 :: Int)) .&. 15 @?= 7
+            (decoded `div` 2 ^ (62 :: Int)) .&. 3 @?= 2
+          summary <- ByteString.readFile (directory </> "suite/recipients/summary.json")
+          for_ values $ \value -> assertBool "summary excludes generated and override values" (not (value `ByteString.isInfixOf` summary)),
+      testCase "client and test modes execute against the shared fixture service" $ do
         detected <- detectHurlCapabilities
         case detected of
           Left DependencyNotFound {} -> putStrLn "SKIP: Hurl 8.x or Hurlfmt is not installed"
