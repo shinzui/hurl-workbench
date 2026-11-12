@@ -85,3 +85,7 @@ The generated single-root assumption belongs to the `nix-haskell-flake` template
 `mori://shinzui/seihou-modules`; artifact-level URI coverage for its template source is pending.
 This repository uses the template's supported escape hatch rather than modifying generated Nix
 files by hand.
+
+The Linux release driver selects `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` after entering
+the Nix shell. This makes Unicode filesystem fixtures reproducible in the minimal
+container image, whose inherited locale otherwise defaults to ASCII.

@@ -44,15 +44,19 @@ This implements [IR-3](../improvement-requests/allow-a-run-scoped-file-root-for-
 - [x] Milestone 2 (2026-11-12): Typed roots reach single requests, matrix cases, and suite batches. Captured argv, core preparation, artifact-overlap, and refusal-summary tests pass; source escape tests remain green. Core suite: 123 tests passed.
 - [ ] Milestone 3: Real byte-capture, concurrent invocation, failure/cancellation, and package/example checks prove ownership and isolation.
 
-Implementation checkpoint: live CLI coverage passes (44 tests), including exact bytes, concurrent matrix invocations, parameter precedence, inspection without payloads, failure/cancellation ownership, and removal after preflight. Release-copy and schema checks pass. The new public example passes its byte-for-byte cmp check, and the effective-permission CLI check passes as uid 501 on macOS. Full macOS and Apple-container Linux release gates are running. Mori remains unavailable; FRIC-11 records the lookup detour. No dependency version or bound changed.
+Implementation checkpoint: live CLI coverage passes (44 tests), including exact bytes, concurrent matrix invocations, parameter precedence, inspection without payloads, failure/cancellation ownership, and removal after preflight. Release-copy and schema checks pass. The new public example passes its byte-for-byte cmp check, and the effective-permission CLI check passes as uid 501 on macOS. Full macOS `just check` passes, including 123 core tests, 44 CLI tests, examples, sdist builds, and flake checks. The first Linux run reached tests but revealed an ASCII locale in the release driver (FRIC-12); rerun with explicit UTF-8 is pending. Mori remains unavailable; FRIC-11 records the lookup detour. No dependency version or bound changed.
 
 
 ## Surprises & Discoveries
+
+2026-11-12: The clean Linux gate defaulted to ASCII. Both new Unicode filename scenarios failed at directory creation with `recoverEncode`, before testing file-root execution. FRIC-12 in `docs/friction-log/` records the driver correction and rerun.
 
 2026-11-12: The existing fixture echo endpoint already preserves raw request bytes. Live tests capture strict raw bodies directly before responding, so no new production fixture endpoint is needed. Effective permission checks use directory listing plus stat of the directory’s dot entry; both run under the effective identity and include ACL/privilege behavior. Linux root-run release checks use a separate public CLI test that drops to uid 65534.
 
 
 ## Decision Log
+
+2026-11-12: Select C.UTF-8 explicitly after entering the Linux container Nix shell. The positive Unicode path criterion needs a UTF-8 filesystem locale; the test driver must provide it rather than dropping that criterion or changing process-global encoding in library execution.
 
 
 2026-11-11: A supplied CLI path is relative to the invocation working directory, as report/output paths are today. A suite parameter path is relative to the workspace root, keeping manifest semantics stable when invoked from a different directory. CLI selection wins over the suite parameter; otherwise the default is the canonical workspace root.

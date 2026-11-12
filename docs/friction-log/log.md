@@ -2,6 +2,12 @@
 
 ## 2026-11-12
 
+* **Addition**: FRIC-12 records detour environment friction with mori://shinzui/hurl-workbench: Clean Linux release driver defaults to an ASCII filesystem locale
+
+
+* **Update**: FRIC-11 accepted: Accept the local registry outage for this execution; retain its evidence for recurring environment maintenance.
+
+
 * **Addition**: FRIC-11 records detour environment friction with mori://shinzui/mori: Mori registry unavailable during file-root implementation
 
 
