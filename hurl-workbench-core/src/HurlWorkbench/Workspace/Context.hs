@@ -22,6 +22,7 @@ module HurlWorkbench.Workspace.Context
     validatedWorkflows,
     validatedRecipes,
     validatedMatrices,
+    validatedChecks,
     validatedServices,
     validatedSuites,
 
@@ -32,6 +33,8 @@ module HurlWorkbench.Workspace.Context
     lookupWorkflow,
     lookupRecipe,
     lookupMatrix,
+    lookupCheck,
+    lookupCheckExecutable,
     lookupService,
     lookupSuite,
   )
@@ -90,6 +93,9 @@ validatedRecipes = view #recipeIndex
 validatedMatrices :: ValidatedWorkspace -> Map MatrixName Matrix
 validatedMatrices = view #matrixIndex
 
+validatedChecks :: ValidatedWorkspace -> Map CheckName Check
+validatedChecks = view #checkIndex
+
 validatedServices :: ValidatedWorkspace -> Map ServiceName Service
 validatedServices = view #serviceIndex
 
@@ -115,6 +121,12 @@ lookupRecipe name = Map.lookup name . validatedRecipes
 
 lookupMatrix :: MatrixName -> ValidatedWorkspace -> Maybe Matrix
 lookupMatrix name = Map.lookup name . validatedMatrices
+
+lookupCheck :: CheckName -> ValidatedWorkspace -> Maybe Check
+lookupCheck name = Map.lookup name . validatedChecks
+
+lookupCheckExecutable :: CheckName -> ValidatedWorkspace -> Maybe FilePath
+lookupCheckExecutable name = Map.lookup name . view #checkExecutables
 
 lookupService :: ServiceName -> ValidatedWorkspace -> Maybe Service
 lookupService name = Map.lookup name . validatedServices

@@ -220,7 +220,7 @@ tests =
           let reportRoot = directory </> "reports"
               request = fullSuiteRequest directory True False (Set.fromList [JUnit, Json]) (Just reportRoot) False
           result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
-          map (view #name) (NonEmpty.toList (result ^. #cases))
+          map (view #name) (toList (result ^. #cases))
             @?= ["list-members", "top-properties", "property-page-sizes/small", "property-page-sizes/large"]
           result ^. #serviceOutcome @?= Nothing
           result ^. #selectedExitCode @?= ExitSuccess
@@ -252,7 +252,7 @@ tests =
                 }
         result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
         result ^. #selectedExitCode @?= ExitFailure 4
-        map (view #outcome) (NonEmpty.toList (result ^. #cases)) @?= [CaseSkipped BatchPrerequisiteFailed]
+        map (view #outcome) (toList (result ^. #cases)) @?= [CaseSkipped BatchPrerequisiteFailed]
         case result ^. #serviceOutcome of
           Just (ServiceFailed _) -> pure ()
           other -> assertFailure ("expected managed-service failure, got " <> show other)

@@ -1,5 +1,6 @@
 module Main (main) where
 
+import CheckTest qualified
 import Control.Monad (join)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as ByteString
@@ -44,7 +45,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 main :: IO ()
-main = defaultMain (testGroup "hurl-workbench-cli" [FileRootTest.tests, parserTests, commandTests, executionTests])
+main = defaultMain (testGroup "hurl-workbench-cli" [CheckTest.tests, FileRootTest.tests, parserTests, commandTests, executionTests])
 
 fixtureDir :: FilePath -> FilePath
 fixtureDir name = "../hurl-workbench-core/test/fixtures/workspaces" </> name
@@ -251,7 +252,7 @@ commandTests =
           @?= CommandResult
             { stdoutLines =
                 [ "Valid workspace: " <> Text.pack manifest,
-                  "5 parameters, 3 fragments, 2 workflows, 1 recipe, 1 matrix, 1 service, 1 suite"
+                  "5 parameters, 3 fragments, 2 workflows, 1 recipe, 1 matrix, 0 checks, 1 service, 1 suite"
                 ],
               stderrLines = [],
               exitCode = ExitSuccess

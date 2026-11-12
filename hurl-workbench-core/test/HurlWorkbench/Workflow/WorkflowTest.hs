@@ -188,6 +188,7 @@ makeWorkspace directory fragmentInputs workflowInputs = do
               ],
             recipes = [],
             matrices = [],
+            checks = [],
             services = [],
             suites = []
           }

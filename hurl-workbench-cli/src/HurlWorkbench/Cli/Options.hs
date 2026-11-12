@@ -203,6 +203,7 @@ data ListCategory
   | WorkflowsCategory
   | RecipesCategory
   | MatricesCategory
+  | ChecksCategory
   | ServicesCategory
   | SuitesCategory
   deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
@@ -223,6 +224,7 @@ listCategoryName = \case
   WorkflowsCategory -> "workflows"
   RecipesCategory -> "recipes"
   MatricesCategory -> "matrices"
+  ChecksCategory -> "checks"
   ServicesCategory -> "services"
   SuitesCategory -> "suites"
 
@@ -507,7 +509,7 @@ suiteReportOptionsParser =
             (long "report" <> metavar "junit|html|json|tap" <> help "Emit one isolated report of this format per expanded run; repeat for several formats")
         )
       <*> optional
-        (strOption (long "report-dir" <> metavar "DIR" <> help "Write per-run reports and summary.json beneath DIR/SUITE"))
+        (strOption (long "report-dir" <> metavar "DIR" <> help "Write reports and summary.json beneath DIR/SUITE (required for checks)"))
       <*> switch (long "overwrite" <> help "Replace only the selected suite subtree beneath --report-dir")
 
 batchControlOptionsParser :: Parser BatchControlOptions
@@ -675,7 +677,7 @@ listCategoryParser =
     ( metavar "CATEGORY"
         <> value AllCategories
         <> completeWith (map (Text.unpack . listCategoryName) allListCategories)
-        <> help "One of all, parameters, fragments, workflows, recipes, matrices, services, suites (default: all)"
+        <> help "One of all, parameters, fragments, workflows, recipes, matrices, checks, services, suites (default: all)"
     )
 
 fileRootParser :: Parser (Maybe FilePath)

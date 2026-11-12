@@ -97,3 +97,20 @@ identity before ownership registration. The direct process dependency uses stabl
 public APIs; Hackage and upstream tags were checked through 1.6.30.0 before
 selecting the inclusive 1.6 range. Other adapters retain typed-process where no
 ownership transfer is required.
+
+## Bounded executable assertions (2026-11-12)
+
+[Plan 13](../plans/13-run-executable-checks-as-ordered-suite-barriers.md) adds named
+workspace-owned checks as explicit suite barriers. They execute once, without a
+shell, from a canonical executable file inside the workspace. Only Plain
+suite-level parameters may substitute argv templates; Secret inputs use explicit
+environment bindings. Generated, recipe and matrix inputs are not shared check
+state. The shared environment selector freezes check commands during preflight.
+
+Checks use Process.Run ownership with a finite execution deadline (default 60
+seconds), then a separate five-second TERM grace and five-second KILL/reap budget.
+Cleanup addresses descendants even after leader exit and runs before cancellation
+is rethrown. Normal exits alone compare expected status; mismatch, timeout,
+signal, cancellation and launch failure retain distinct outcomes. Cleanup diagnostics
+never replace the primary assertion outcome. Service monitors remain active during
+checks and cancel the group before service cleanup and teardown.

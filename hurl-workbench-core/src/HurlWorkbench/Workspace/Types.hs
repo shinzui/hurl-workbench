@@ -19,6 +19,7 @@ module HurlWorkbench.Workspace.Types
     RecipeName (..),
     MatrixName (..),
     MatrixCaseName (..),
+    CheckName (..),
     ServiceName (..),
     SuiteName (..),
     WorkspaceRoot (..),
@@ -49,6 +50,7 @@ module HurlWorkbench.Workspace.Types
     HttpReadiness (..),
     CommandReadiness (..),
     Readiness (..),
+    Check (..),
     Service (..),
     RunReference (..),
     ServiceStep (..),
@@ -75,6 +77,7 @@ data Workspace = Workspace
     workflows :: ![Workflow],
     recipes :: ![Recipe],
     matrices :: ![Matrix],
+    checks :: ![Check],
     services :: ![Service],
     suites :: ![Suite]
   }
@@ -108,6 +111,10 @@ newtype MatrixName = MatrixName {unMatrixName :: Text}
 
 -- | Name of one case inside a matrix. Unique only within its matrix.
 newtype MatrixCaseName = MatrixCaseName {unMatrixCaseName :: Text}
+  deriving stock (Generic, Eq, Ord, Show)
+  deriving newtype (FromDhall)
+
+newtype CheckName = CheckName {unCheckName :: Text}
   deriving stock (Generic, Eq, Ord, Show)
   deriving newtype (FromDhall)
 
@@ -327,6 +334,17 @@ data Readiness
 instance FromDhall Readiness where
   autoWith _ = genericAutoWith (stripConstructorAffixes "Readiness" "Check")
 
+-- | A single executable assertion owned by the workspace.
+data Check = Check
+  { name :: !CheckName,
+    command :: !CommandSpec,
+    expectedStatus :: !Natural,
+    timeoutSeconds :: !(Maybe Natural),
+    description :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+  deriving anyclass (FromDhall)
+
 -- | A managed process that suites can start and stop.
 data Service = Service
   { name :: !ServiceName,
@@ -348,6 +366,7 @@ data RunReference
   = WorkflowRun !WorkflowName
   | RecipeRun !RecipeName
   | MatrixRun !MatrixName
+  | CheckRun !CheckName
   | ServiceRun !ServiceStep
   deriving stock (Generic, Eq, Show)
 

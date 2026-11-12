@@ -20,7 +20,7 @@ import Dhall.Map qualified
 import Dhall.Parser (Src)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Workspace.Error (WorkspaceError (..))
-import HurlWorkbench.Workspace.Types (Workspace, supportedSchemaVersion)
+import HurlWorkbench.Workspace.Types (Check, Workspace, supportedSchemaVersion)
 import Numeric.Natural (Natural)
 import System.FilePath (takeDirectory)
 
@@ -60,7 +60,7 @@ decodeWorkspaceFile path = do
             Just version
               | version /= supportedSchemaVersion ->
                   pure (Left (UnsupportedSchemaVersion path version supportedSchemaVersion))
-              | otherwise -> decodeTyped (normalizeParameterKinds (normalizeCommandPolicies (normalizeSuiteLifecycle normalized)))
+              | otherwise -> decodeTyped (normalizeChecks (normalizeParameterKinds (normalizeCommandPolicies (normalizeSuiteLifecycle normalized))))
 
     decodeTyped normalized = do
       expected <- trySync $ do
@@ -113,7 +113,7 @@ normalizeCommandPolicies :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
 normalizeCommandPolicies (Dhall.Core.RecordLit fields) =
   Dhall.Core.RecordLit
     ( Dhall.Map.fromList
-        [(key, if key `elem` ["services", "suites"] then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
+        [(key, if key `elem` ["checks", "services", "suites"] then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList fields]
     )
   where
     policyType = Dhall.Core.Union (Dhall.Map.fromList [("Inherit", Nothing), ("Clean", Just (Dhall.Core.App Dhall.Core.List Dhall.Core.Text))])
@@ -200,3 +200,22 @@ normalizeParameterKinds expression =
           | Dhall.Map.toList alternatives == [("Plain", Nothing), ("Secret", Nothing)] ->
               Dhall.Core.Union (Dhall.Map.insert "Generated" (Just generator) alternatives)
         other -> other
+
+-- | Add the absent category and widen legacy run unions, including annotations
+-- on empty lists. Original and upgraded expressions are both typechecked.
+normalizeChecks :: Dhall.Core.Expr Src Void -> Dhall.Core.Expr Src Void
+normalizeChecks (Dhall.Core.RecordLit fields) =
+  let checkList = Dhall.Core.App Dhall.Core.List checkType
+      withChecks = if isJust (Dhall.Map.lookup "checks" fields) then fields else Dhall.Map.insert "checks" (Dhall.Core.makeRecordField (Dhall.Core.ListLit (Just checkList) mempty)) fields
+   in Dhall.Core.RecordLit (Dhall.Map.fromList [(key, if key == "suites" then field {Dhall.Core.recordFieldValue = upgrade (Dhall.Core.recordFieldValue field)} else field) | (key, field) <- Dhall.Map.toList withChecks])
+  where
+    checkType = case toList (Dhall.expected (Dhall.auto @Check)) of type_ : _ -> type_; [] -> error "invalid check decoder"
+    upgrade expression =
+      let nested = runIdentity (Dhall.Core.subExpressions (Identity . upgrade) expression)
+       in case nested of
+            Dhall.Core.Union alternatives
+              | all (\key -> Dhall.Map.lookup key alternatives == Just (Just Dhall.Core.Text)) ["Workflow", "Recipe", "Matrix"],
+                not (isJust (Dhall.Map.lookup "Check" alternatives)) ->
+                  Dhall.Core.Union (Dhall.Map.insert "Check" (Just Dhall.Core.Text) alternatives)
+            other -> other
+normalizeChecks other = other

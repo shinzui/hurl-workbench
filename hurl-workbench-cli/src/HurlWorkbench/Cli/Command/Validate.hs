@@ -57,6 +57,7 @@ validateSummary vw =
         plural (length (ws ^. #workflows)) "workflow" "workflows",
         plural (length (ws ^. #recipes)) "recipe" "recipes",
         plural (length (ws ^. #matrices)) "matrix" "matrices",
+        plural (length (ws ^. #checks)) "check" "checks",
         plural (length (ws ^. #services)) "service" "services",
         plural (length (ws ^. #suites)) "suite" "suites"
       ]

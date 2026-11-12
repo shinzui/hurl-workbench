@@ -27,6 +27,7 @@
 , HttpReadiness = ./HttpReadiness.dhall
 , CommandReadiness = ./CommandReadiness.dhall
 , Readiness = ./Readiness.dhall
+, Check = ./Check.dhall
 , Service = ./Service.dhall
 , ServiceStep = ./ServiceStep.dhall
 , RunReference = ./RunReference.dhall

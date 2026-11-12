@@ -20,10 +20,10 @@ import Data.Aeson qualified as Aeson
 import Data.Bits ((.&.))
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime, addUTCTime, diffUTCTime, getCurrentTime)
+import HurlWorkbench.Check.Run
 import HurlWorkbench.Hurl.Format (HurlfmtCapabilities, HurlfmtError, validateRenderedWorkflow)
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Prelude
@@ -34,7 +34,7 @@ import HurlWorkbench.Service.Resolve
 import HurlWorkbench.Suite.Resolve
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context (ValidatedWorkspace)
-import HurlWorkbench.Workspace.Types (IsolationPolicy (..), ServiceName (..), ServiceStep (..), SuiteName (..))
+import HurlWorkbench.Workspace.Types (CheckName (..), IsolationPolicy (..), ServiceName (..), ServiceStep (..), SuiteName (..))
 import System.Directory (createDirectoryIfMissing, removeFile, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
@@ -58,7 +58,7 @@ data ServiceOutcome
   | ServiceFailed !ServiceError
   deriving stock (Generic, Eq, Show)
 
-data StepOutcome = HurlStep !CaseResult | LifecycleStep !LifecycleOutcome
+data StepOutcome = HurlStep !CaseResult | LifecycleStep !LifecycleOutcome | CheckStep !CheckResult
   deriving stock (Generic, Eq, Show)
 
 data PhaseOutcome = PhaseOutcome
@@ -72,7 +72,7 @@ data PhaseOutcome = PhaseOutcome
   deriving stock (Generic, Eq, Show)
 
 data SuiteResult = SuiteResult
-  { cases :: !(NonEmpty CaseResult),
+  { cases :: ![CaseResult],
     serviceOutcome :: !(Maybe ServiceOutcome),
     summaryPath :: !(Maybe FilePath),
     summaryError :: !(Maybe Text),
@@ -105,6 +105,7 @@ executePreparedSuite :: HurlRunner -> PreparedSuite -> IO SuiteResult
 executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \restore -> do
   observed <- newTVarIO Map.empty
   lifecycle <- newTVarIO Map.empty
+  checks <- newTVarIO Map.empty
   startups <- newTVarIO []
   phases <- newTVarIO Map.empty
   primary <- newTVarIO Nothing
@@ -162,6 +163,23 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
             Right result
               | prepared ^. #batchOptions . #failFast, result ^. #selectedExitCode /= ExitSuccess -> pure (Right ())
               | otherwise -> executeSteps (ordinal + 1) rest
+        CheckBarrier check -> do
+          result <-
+            watchServices group $
+              Right
+                <$> runCheckObserved
+                  phaseRoot
+                  check
+                  ( \outcome -> do
+                      atomically (modifyTVar' checks (Map.insert ordinal outcome))
+                      unless (checkPassed outcome) (remember "check-failed")
+                  )
+          case result of
+            Left err -> pure (Left err)
+            Right outcome
+              | not (null (outcome ^. #cleanupDiagnostics)) -> pure (Right ())
+              | not (checkPassed outcome), prepared ^. #batchOptions . #failFast -> pure (Right ())
+              | otherwise -> executeSteps (ordinal + 1) rest
         ServiceBarrier operation -> do
           let (name, action) = stepLabel operation
               pending = LifecycleOutcome name action "cancelled" 0 Nothing
@@ -202,6 +220,7 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
   teardown
   completed <- readTVarIO observed
   barrierResults <- readTVarIO lifecycle
+  checkResults <- readTVarIO checks
   serviceStarts <- readTVarIO startups
   phaseResults <- readTVarIO phases
   primaryFailure <- readTVarIO primary
@@ -209,9 +228,9 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
       serviceError = case execution of Right (Left err) -> Just err; _ -> Nothing
       missingReason
         | cancelled = BatchCancelled
-        | isJust serviceError = BatchPrerequisiteFailed
+        | isJust serviceError || any (not . null . view #cleanupDiagnostics) checkResults = BatchPrerequisiteFailed
         | otherwise = FailFastTriggered
-      caseResults = NonEmpty.fromList [Map.findWithDefault ((prerequisiteFailed batchCase) {outcome = CaseSkipped missingReason}) caseIndex completed | (caseIndex, batchCase) <- zip [0 ..] (toList (prepared ^. #cases))]
+      caseResults = [Map.findWithDefault (prerequisiteFailed batchCase & #outcome .~ CaseSkipped missingReason) caseIndex completed | (caseIndex, batchCase) <- zip [0 ..] (toList (prepared ^. #cases))]
       phaseOutcomes = [Map.findWithDefault (PhaseOutcome phase ordinal CommandSkipped Nothing [] Nothing) (phase, ordinal) phaseResults | (phase, commands) <- [("setup", prepared ^. #setupCommands), ("teardown", prepared ^. #teardownCommands)], ordinal <- [0 .. length commands - 1]]
       cleanupErrors =
         mapMaybe (view #failure) cleanup
@@ -225,11 +244,12 @@ executePreparedSuite runner prepared = withPhaseRoot $ \phaseRoot -> mask $ \res
       exitCode
         | cancelled = ExitFailure 130
         | not (null allServiceErrors) = ExitFailure 4
-        | otherwise = selectCaseExit caseResults
+        | otherwise = selectStepExit stepResults
       stepResults =
         concat
           [ case step of
               HurlBatch offset cases -> map HurlStep (take (length cases) (drop offset (toList caseResults)))
+              CheckBarrier check -> [CheckStep (Map.findWithDefault (skippedCheck (skipStatus missingReason) check) ordinal checkResults)]
               ServiceBarrier operation -> let (name, action) = stepLabel operation in [LifecycleStep (Map.findWithDefault (LifecycleOutcome name action "skipped" 0 Nothing) ordinal barrierResults)]
           | (ordinal, step) <- zip [0 :: Int ..] (prepared ^. #steps)
           ]
@@ -286,19 +306,29 @@ prerequisiteFailed batchCase =
       capturedOutput = Nothing
     }
 
-selectCaseExit :: NonEmpty CaseResult -> ExitCode
-selectCaseExit results = fromMaybe fallback (firstFailure (NonEmpty.toList results))
+selectStepExit :: [StepOutcome] -> ExitCode
+selectStepExit results = fromMaybe fallback (firstFailure results)
   where
     fallback
-      | all ((== CasePassed) . view #outcome) results = ExitSuccess
+      | all passed results = ExitSuccess
       | otherwise = ExitFailure 3
+    passed (HurlStep result) = result ^. #outcome == CasePassed
+    passed (CheckStep result) = checkPassed result
+    passed (LifecycleStep result) = result ^. #status == "passed"
     firstFailure = \case
       [] -> Nothing
-      result : remaining -> case result ^. #outcome of
-        CaseFailed exitCode -> Just exitCode
+      HurlStep result : remaining -> case result ^. #outcome of
+        CaseFailed code -> Just code
         CaseStartFailed _ -> Just (ExitFailure 3)
-        CasePassed -> firstFailure remaining
-        CaseSkipped _ -> firstFailure remaining
+        _ -> firstFailure remaining
+      CheckStep result : remaining | checkExitCode result /= ExitSuccess -> Just (checkExitCode result)
+      _ : remaining -> firstFailure remaining
+
+skipStatus :: SkipReason -> Text
+skipStatus = \case
+  FailFastTriggered -> "skipped-fail-fast"
+  BatchPrerequisiteFailed -> "skipped-prerequisite-failed"
+  BatchCancelled -> "cancelled"
 
 writeSummary :: FilePath -> Aeson.Value -> IO (Either Text ())
 writeSummary path value = do
@@ -331,7 +361,7 @@ summaryValueWithStatus status metadata result =
       "status" Aeson..= status,
       "service" Aeson..= serviceStatus (result ^. #serviceOutcome),
       "primaryFailure" Aeson..= (result ^. #primaryFailure),
-      "cleanupDiagnostics" Aeson..= map (const ("cleanup-failed" :: Text)) (result ^. #cleanupDiagnostics),
+      "cleanupDiagnostics" Aeson..= (map (const ("cleanup-failed" :: Text)) (result ^. #cleanupDiagnostics) <> concat [check ^. #cleanupDiagnostics | CheckStep check <- result ^. #steps]),
       "services" Aeson..= map lifecycleValue (result ^. #services),
       "phases" Aeson..= map phaseValue (result ^. #phases),
       "steps" Aeson..= map stepValue (result ^. #steps),
@@ -382,6 +412,18 @@ commandStatus = \case
 
 stepValue :: StepOutcome -> Aeson.Value
 stepValue (LifecycleStep event) = lifecycleValue event
+stepValue (CheckStep result) =
+  Aeson.object
+    [ "kind" Aeson..= ("check" :: Text),
+      "name" Aeson..= unCheckName (result ^. #name),
+      "status" Aeson..= checkStatus result,
+      "expectedStatus" Aeson..= (result ^. #expectedStatus),
+      "actualStatus" Aeson..= (result ^. #actualStatus),
+      "elapsedSeconds" Aeson..= fmap (realToFrac @NominalDiffTime @Double) (result ^. #elapsed),
+      "stdout" Aeson..= (result ^. #stdoutPath),
+      "stderr" Aeson..= (result ^. #stderrPath),
+      "cleanupDiagnostics" Aeson..= (result ^. #cleanupDiagnostics)
+    ]
 stepValue (HurlStep result) =
   Aeson.object
     ["kind" Aeson..= ("hurl" :: Text), "name" Aeson..= (result ^. #name), "status" Aeson..= caseStatus (result ^. #outcome)]

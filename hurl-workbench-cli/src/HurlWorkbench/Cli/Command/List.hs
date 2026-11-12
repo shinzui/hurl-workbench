@@ -42,6 +42,7 @@ listLines category vw = case category of
       WorkflowsCategory -> table ["NAME", "FRAGMENTS", "PARAMETERS", "DESCRIPTION"] (map workflowRow (ws ^. #workflows))
       RecipesCategory -> table ["NAME", "WORKFLOW", "SAFETY", "BINDINGS", "DESCRIPTION"] (map recipeRow (ws ^. #recipes))
       MatricesCategory -> table ["NAME", "RECIPE", "CASES", "FAIL-FAST", "DESCRIPTION"] (map matrixRow (ws ^. #matrices))
+      ChecksCategory -> table ["NAME", "EXPECTED-STATUS", "TIMEOUT", "DESCRIPTION"] (map checkRow (ws ^. #checks))
       ServicesCategory -> table ["NAME", "COMMAND", "READINESS", "DESCRIPTION"] (map serviceRow (ws ^. #services))
       SuitesCategory -> table ["NAME", "RUNS", "SERVICE", "SAFETY", "FAIL-FAST", "DESCRIPTION"] (map (suiteRow vw) (ws ^. #suites))
 
@@ -57,6 +58,7 @@ categoryTitle = \case
   WorkflowsCategory -> "Workflows"
   RecipesCategory -> "Recipes"
   MatricesCategory -> "Matrices"
+  ChecksCategory -> "Checks"
   ServicesCategory -> "Services"
   SuitesCategory -> "Suites"
 
@@ -103,6 +105,9 @@ matrixRow m =
     describe (m ^. #description)
   ]
 
+checkRow :: Check -> [Text]
+checkRow check = [unCheckName (check ^. #name), Text.pack (show (check ^. #expectedStatus)), maybe "60" (Text.pack . show) (check ^. #timeoutSeconds), describe (check ^. #description)]
+
 serviceRow :: Service -> [Text]
 serviceRow s =
   [ unServiceName (s ^. #name),
@@ -127,6 +132,7 @@ suiteRow validated s =
       WorkflowRun w -> "workflow:" <> unWorkflowName w
       RecipeRun r -> "recipe:" <> unRecipeName r
       MatrixRun m -> "matrix:" <> unMatrixName m
+      CheckRun c -> "check:" <> unCheckName c
       ServiceRun step -> "service:" <> Text.pack (show step)
 
 suiteSafety :: ValidatedWorkspace -> Suite -> Text
@@ -139,6 +145,7 @@ suiteSafety validated suite =
   where
     dispositions = map disposition (suite ^. #runs)
     disposition = \case
+      CheckRun _ -> ReadOnlyRun
       ServiceRun _ -> ReadOnlyRun
       WorkflowRun _ -> UnclassifiedRun
       RecipeRun name -> maybe UnclassifiedRun recipeDisposition (lookupRecipe name validated)

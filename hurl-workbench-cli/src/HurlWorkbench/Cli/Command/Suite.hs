@@ -9,6 +9,7 @@ where
 import Data.Generics.Labels ()
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import HurlWorkbench.Check.Run (checkStatus)
 import HurlWorkbench.Cli.Command.Matrix (renderCaseSummary, replayCaptured)
 import HurlWorkbench.Cli.Command.Run (buildRuntimeInputs)
 import HurlWorkbench.Cli.Error (cliErrors, cliFailure)
@@ -26,7 +27,7 @@ import HurlWorkbench.Suite.Resolve qualified as Suite
 import HurlWorkbench.Suite.Run qualified as Suite
 import HurlWorkbench.Suite.Scenario
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
-import HurlWorkbench.Workspace.Types (ServiceName (..))
+import HurlWorkbench.Workspace.Types (CheckName (..), ServiceName (..))
 import System.FilePath (isAbsolute, (</>))
 
 runSuiteCommand :: GlobalOptions -> FilePath -> SuiteCommandOptions -> IO CommandResult
@@ -96,6 +97,7 @@ runSuiteCommandWith detectCapabilities validateRendered global currentDirectory 
                                         hurlCapabilityWarnings capabilities
                                           <> replayCaptured (result ^. #cases)
                                           <> map renderCaseSummary (toList (result ^. #cases))
+                                          <> ["CHECK " <> unCheckName (event ^. #name) <> " " <> checkStatus event <> maybe "" ((" -> " <>) . Text.pack) (event ^. #stdoutPath) | Suite.CheckStep event <- result ^. #steps]
                                           <> ["SERVICE " <> unServiceName (event ^. #name) <> " " <> event ^. #action <> " " <> event ^. #status | event <- result ^. #services]
                                           <> ["PHASE " <> event ^. #phase <> " " <> Text.pack (show (event ^. #ordinal)) <> " " <> Text.pack (show (event ^. #status)) | event <- result ^. #phases]
                                           <> renderServiceOutcome (result ^. #serviceOutcome)
@@ -126,6 +128,7 @@ preflightExitCode error_ = maximum (2 : map issueExitCode (toList (error_ ^. #is
       Suite.SuiteReportIoError {} -> 3
       Suite.SuiteRunPreparationFailed (RunFormatFailed _ HurlfmtNotFound {}) -> 3
       Suite.SuiteRunPreparationFailed (RunFormatFailed _ HurlfmtFailed {}) -> 3
+      Suite.SuiteCheckFailed _ _ -> 3
       Suite.SuiteServiceResolutionFailed _ -> 4
       _ -> 2
 

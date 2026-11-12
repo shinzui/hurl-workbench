@@ -164,7 +164,7 @@ labelSequentialRunner names runner = do
         ExitSuccess -> "passed"
         ExitFailure status -> "Hurl exit " <> Text.pack (show status)
 
-replayCaptured :: NonEmpty CaseResult -> [Text]
+replayCaptured :: (Foldable f) => f CaseResult -> [Text]
 replayCaptured = concatMap replayOne . toList
   where
     replayOne result = case result ^. #capturedOutput of

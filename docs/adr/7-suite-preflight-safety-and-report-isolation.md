@@ -112,3 +112,25 @@ phases/teardown/INDEX subtrees, or bracketed private temporary directories. Only
 relative artifact references enter summaries, and captured text is never replayed.
 The caller's fixture paths, lease credentials and release responsibility stay
 outside summaries and lifecycle ownership.
+
+## Check barriers and private artifacts (2026-11-12)
+
+[Plan 13](../plans/13-run-executable-checks-as-ordered-suite-barriers.md) extends the
+ordered scheduler with Check barriers. Every check and environment is resolved
+before setup. Adjacent Hurl cases still use bounded parallel batches; checks drain
+the preceding batch and finish cleanup before later work starts. Checks-only suites
+are valid, so aggregate Hurl collections can be empty. Each individual Hurl batch
+remains nonempty. Global fail-fast skips subsequent checks and Hurl work. Keep-going
+can continue after an ordinary mismatch or timeout with successful cleanup;
+uncertain check cleanup aborts later scheduling.
+
+Check-bearing suites require a report root. Each check receives a collision-checked
+`checks/NAME/` subtree with separate 0600 stdout/stderr files created exclusively
+before spawn. Repeated check artifact identities are refused. Ordered summary steps
+contain logical names, expected/actual status, duration, relative paths and cleanup
+codes. Captured bytes, resolved argv, environments and exception text never enter
+ordinary check diagnostics. Private captures can contain echoed credentials and
+have the same sensitivity as Hurl reports. Service lifecycle exit 4 and report/start
+exit 3 retain their priorities; ordinary Hurl/check failures select in declaration
+order, and check timeout selects 124. Asynchronous cancellation finalizes partial
+check observations before the suite writes its summary and rethrows.

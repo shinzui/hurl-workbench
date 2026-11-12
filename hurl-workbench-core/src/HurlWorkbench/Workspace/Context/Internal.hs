@@ -33,6 +33,8 @@ data ValidatedWorkspace = ValidatedWorkspace
     workflowIndex :: !(Map WorkflowName Workflow),
     recipeIndex :: !(Map RecipeName Recipe),
     matrixIndex :: !(Map MatrixName Matrix),
+    checkIndex :: !(Map CheckName Check),
+    checkExecutables :: !(Map CheckName FilePath),
     serviceIndex :: !(Map ServiceName Service),
     suiteIndex :: !(Map SuiteName Suite)
   }

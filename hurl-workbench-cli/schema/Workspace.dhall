@@ -14,6 +14,8 @@ let Recipe = ./Recipe.dhall
 
 let Matrix = ./Matrix.dhall
 
+let Check = ./Check.dhall
+
 let Service = ./Service.dhall
 
 let Suite = ./Suite.dhall
@@ -25,6 +27,7 @@ in  { Type =
         , workflows : List Workflow.Type
         , recipes : List Recipe.Type
         , matrices : List Matrix.Type
+        , checks : List Check.Type
         , services : List Service.Type
         , suites : List Suite.Type
         }
@@ -34,6 +37,7 @@ in  { Type =
       , workflows = [] : List Workflow.Type
       , recipes = [] : List Recipe.Type
       , matrices = [] : List Matrix.Type
+      , checks = [] : List Check.Type
       , services = [] : List Service.Type
       , suites = [] : List Suite.Type
       }

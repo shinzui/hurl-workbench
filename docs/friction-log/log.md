@@ -2,6 +2,9 @@
 
 ## 2026-11-12
 
+* **Addition**: FRIC-13 records detour environment friction with mori://shinzui/mori: Inherited Mori endpoint uses retired PostgreSQL socket
+
+
 * **Update**: FRIC-12 resolved: Resolve the locale friction with explicit release-driver environment and cross-platform acceptance evidence.
 
 

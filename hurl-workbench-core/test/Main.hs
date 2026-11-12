@@ -1,5 +1,6 @@
 module Main (main) where
 
+import HurlWorkbench.Check.RunTest qualified as CheckRunTest
 import HurlWorkbench.Hurl.RunTest qualified as RunTest
 import HurlWorkbench.Parameter.GenerateTest qualified as GenerateTest
 import HurlWorkbench.Parameter.ParameterTest qualified as ParameterTest
@@ -30,7 +31,8 @@ runTests =
     localOption (NumThreads 1) $
       testGroup
         "hurl-workbench-core"
-        [ FileRootTest.tests,
+        [ CheckRunTest.tests,
+          FileRootTest.tests,
           GenerateTest.tests,
           RunTest.tests,
           ParameterTest.tests,

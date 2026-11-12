@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-11T21:02:49Z
       mode: "other"
       note: "Complete initial IR plan, link created Mina intention, and check cross-plan acceptance contracts"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-11-12T14:05:21Z
+      mode: "implement"
+      note: "Implement validated checks, bounded process execution, and ordered suite reporting"
 ---
 
 # Run executable checks as ordered suite barriers
@@ -35,15 +40,17 @@ This implements [IR-4](../improvement-requests/admit-executable-checks-as-ordere
 ## Progress
 
 
-- [ ] Milestone 1: Compatible named check declarations validate executable containment, references, status/timeout fields, and allowed parameter channels.
-- [ ] Milestone 2: A bounded check process group captures private output and distinguishes expected-status mismatch, timeout, cancellation, and cleanup errors.
-- [ ] Milestone 3: Ordered suite barriers, fail-fast, service monitoring, and redacted summaries work through the public CLI.
+- [x] Milestone 1 (2026-11-12): Version-1 manifests remain compatible; named checks validate canonical executable containment, references, duplicate names, status/timer ranges, Plain argv templates and environment policies. All frozen compatibility fixtures and located negative check tests pass.
+- [x] Milestone 2 (2026-11-12): The single-shot runner uses private separate file captures and the shared ten-second group cleanup policy. Tests prove expected zero/nonzero status, mismatch, spawn/capture failure, timeout, cancellation, TERM-ignoring descendants after leader exit, owner-only captures and injected secondary cleanup failure.
+- [x] Milestone 3 (2026-11-12): Public CLI tests prove jobs=2 ordering on both barrier edges, checks-only execution, keep-going/fail-fast, whole-suite preflight, report refusal, redaction, timeout/cancellation summaries and service death during a check. Service cleanup precedes teardown after check failure. Core: 132 tests passed; CLI: 51 tests passed.
 - [ ] Milestone 4: A real application-owned CLI/API parity check demonstrates declared inputs, semantic comparison, and mismatch reporting alongside package/platform acceptance.
 
-Planning handoff: no implementation or external acceptance is claimed. The plan is linked to its newly created Mina intention. Mori registry discovery failed on 2026-11-11 because its configured PostgreSQL socket refused connections. Dependency and consumer source discovery must be retried before writing new dependency calls or claiming real application parity evidence.
+Implementation checkpoint: milestones 1–3 are implemented and tested. Milestone 4 remains open for the distributed examples, real independently provisioned application parity evidence and final platform/release checks. Mori discovery now succeeds using the endpoint already configured in the shell profile; dependency sources and the actual Rei consumer documentation have been inspected. No dependency bounds changed.
 
 
 ## Surprises & Discoveries
+
+2026-11-12: The inherited Mori endpoint was stale; the current shell profile endpoint restored registry discovery without changing user configuration (FRIC-13 in `docs/friction-log/`). Checks-only suites require lists for aggregate Hurl cases and metadata while each prepared Hurl batch remains nonempty. Existing lifecycle scheduling and service monitors otherwise compose directly with a Check barrier.
 
 
 ## Decision Log

@@ -244,7 +244,7 @@ renderedFixture directory = do
   let fragmentPath = canonicalRoot </> "request.hurl"
       fragment = Fragment (FragmentName "request") "request.hurl" Nothing
       workflow = Workflow (WorkflowName "request") [FragmentName "request"] [] Nothing
-      workspace = Workspace supportedSchemaVersion [] [fragment] [workflow] [] [] [] []
+      workspace = Workspace supportedSchemaVersion [] [fragment] [workflow] [] [] [] [] []
       context = WorkspaceContext (canonicalRoot </> "hurl-workbench.dhall") (WorkspaceRoot canonicalRoot) workspace
   Text.IO.writeFile fragmentPath "GET http://127.0.0.1/health\n"
   validated <-

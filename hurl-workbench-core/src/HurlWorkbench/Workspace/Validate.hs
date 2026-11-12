@@ -24,12 +24,14 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import HurlWorkbench.Check.Template
 import HurlWorkbench.Parameter.Generate (validateGenerator)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Workspace.Context.Internal (ValidatedWorkspace (..), WorkspaceContext (..))
 import HurlWorkbench.Workspace.Types
 import Numeric.Natural (Natural)
-import System.Directory (canonicalizePath, doesDirectoryExist, doesFileExist)
+import System.Directory (canonicalizePath, doesDirectoryExist, doesFileExist, getPermissions)
+import System.Directory qualified as Directory
 import System.FilePath (isAbsolute, splitDirectories, takeExtension, (</>))
 
 -- | One semantic problem, located by entity path such as
@@ -48,6 +50,7 @@ renderValidationIssue problem = problem ^. #location <> ": " <> problem ^. #mess
 validateWorkspace :: WorkspaceContext -> IO (Either (NonEmpty ValidationIssue) ValidatedWorkspace)
 validateWorkspace ctx = do
   (fragmentIssues, fragmentFiles) <- validateFragments root ws
+  (checkIssues, checkExecutables) <- validateChecks root ws
   serviceIssues <- validateServices root ws
   phaseIssues <- fmap concat $ for (ws ^. #suites) $ \suite -> fmap concat $ for [("setup", suite ^. #setup), ("teardown", suite ^. #teardown)] $ \(phase, commands) -> fmap concat $ for (zip [0 :: Int ..] commands) $ \(ordinal, command) -> commandIssues root ws (unSuiteName (suite ^. #name)) ("suites/" <> unSuiteName (suite ^. #name) <> "/" <> phase <> "/" <> tshow ordinal) command
   let issues =
@@ -58,6 +61,7 @@ validateWorkspace ctx = do
             ordered (validateWorkflows ws),
             ordered (validateRecipes ws),
             ordered (validateMatrices ws),
+            ordered checkIssues,
             ordered serviceIssues,
             ordered (validateSuites ws <> phaseIssues)
           ]
@@ -73,6 +77,8 @@ validateWorkspace ctx = do
             workflowIndex = indexBy (view #name) (ws ^. #workflows),
             recipeIndex = indexBy (view #name) (ws ^. #recipes),
             matrixIndex = indexBy (view #name) (ws ^. #matrices),
+            checkIndex = indexBy (view #name) (ws ^. #checks),
+            checkExecutables,
             serviceIndex = indexBy (view #name) (ws ^. #services),
             suiteIndex = indexBy (view #name) (ws ^. #suites)
           }
@@ -346,6 +352,45 @@ validateMatrices ws =
               ]
 
 --------------------------------------------------------------------------------
+-- Checks
+
+validateChecks :: WorkspaceRoot -> Workspace -> IO (Tagged, Map CheckName FilePath)
+validateChecks root ws = do
+  checked <- for (ws ^. #checks) $ \check -> do
+    let name = unCheckName (check ^. #name)
+        loc = "checks/" <> name
+        spec = check ^. #command
+        relative = Text.unpack (spec ^. #executable)
+    common <- commandIssues root ws name (loc <> "/command") spec
+    target <-
+      if ".." `elem` splitDirectories relative
+        then pure (Left "executable path must not contain parent traversal")
+        else checkContainedPath root relative FileEntry
+    executableResult <- case target of
+      Left problem -> pure (Left problem)
+      Right path -> do
+        permissions <- getPermissions path
+        pure (if Directory.executable permissions then Right path else Left "check file must be executable")
+    let problems =
+          common
+            <> [issue name (loc <> "/command/executable") problem | Left problem <- [executableResult]]
+            <> [issue name (loc <> "/expectedStatus") "expected status must be between 0 and 255" | check ^. #expectedStatus > 255]
+            <> maybe [] (positive name (loc <> "/timeoutSeconds")) (check ^. #timeoutSeconds)
+            <> concat [argumentIssues name (loc <> "/command/arguments/" <> tshow ordinal) argument | (ordinal, argument) <- zip [0 :: Int ..] (spec ^. #arguments)]
+    pure (problems, (check ^. #name,) <$> either (const Nothing) Just executableResult)
+  pure (nameIssues "checks" isValidEntityName entityNameRule (map (unCheckName . view #name) (ws ^. #checks)) <> concatMap fst checked, Map.fromList (mapMaybe snd checked))
+  where
+    argumentIssues key loc argument = case parseTemplate argument of
+      Left problem -> [issue key loc problem]
+      Right parts ->
+        concat
+          [ case filter ((== name) . view #name) (ws ^. #parameters) of
+              [] -> [issue key loc ("unknown parameter " <> quote (unParameterName name))]
+              parameter : _ -> [issue key loc "only Plain parameters may appear in check arguments" | parameter ^. #kind /= Plain]
+          | Placeholder name <- parts
+          ]
+
+--------------------------------------------------------------------------------
 -- Services
 
 validateServices :: WorkspaceRoot -> Workspace -> IO Tagged
@@ -420,6 +465,7 @@ validateSuites ws =
     workflows = Set.fromList (map (view #name) (ws ^. #workflows))
     recipes = Set.fromList (map (view #name) (ws ^. #recipes))
     matrices = Set.fromList (map (view #name) (ws ^. #matrices))
+    checks = Set.fromList (map (view #name) (ws ^. #checks))
     services = Set.fromList (map (view #name) (ws ^. #services))
     suiteIssues s =
       let name = unSuiteName (s ^. #name)
@@ -460,6 +506,7 @@ validateSuites ws =
     unresolvedRun = \case
       WorkflowRun w | w `Set.notMember` workflows -> Just ("unknown workflow " <> quote (unWorkflowName w))
       RecipeRun r | r `Set.notMember` recipes -> Just ("unknown recipe " <> quote (unRecipeName r))
+      CheckRun c | c `Set.notMember` checks -> Just ("unknown check " <> quote (unCheckName c))
       MatrixRun m | m `Set.notMember` matrices -> Just ("unknown matrix " <> quote (unMatrixName m))
       _ -> Nothing
 

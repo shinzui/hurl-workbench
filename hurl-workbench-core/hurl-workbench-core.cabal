@@ -46,6 +46,8 @@ library
   import: common-options
   hs-source-dirs: src
   exposed-modules:
+    HurlWorkbench.Check.Resolve
+    HurlWorkbench.Check.Run
     HurlWorkbench.Hurl.Capabilities
     HurlWorkbench.Hurl.Format
     HurlWorkbench.Hurl.Run
@@ -76,6 +78,7 @@ library
     HurlWorkbench.Workspace.Validate
 
   other-modules:
+    HurlWorkbench.Check.Template
     HurlWorkbench.Parameter.Resolve.Internal
     HurlWorkbench.Process.Run
     HurlWorkbench.Workspace.Context.Internal
@@ -107,6 +110,7 @@ test-suite hurl-workbench-core-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    HurlWorkbench.Check.RunTest
     HurlWorkbench.Hurl.RunTest
     HurlWorkbench.Parameter.GenerateTest
     HurlWorkbench.Parameter.ParameterTest

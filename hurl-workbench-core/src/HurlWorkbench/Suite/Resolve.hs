@@ -31,6 +31,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime)
+import HurlWorkbench.Check.Resolve
 import HurlWorkbench.Hurl.Format (HurlfmtCapabilities, HurlfmtError, validateRenderedWorkflow)
 import HurlWorkbench.Hurl.Run
 import HurlWorkbench.Parameter.Resolve
@@ -115,6 +116,7 @@ data SuitePreflightIssue
   | SuiteReportPathIsNotDirectory !FilePath
   | SuiteReportIoError !FilePath !Text
   | SuiteExternalLifecycle
+  | SuiteCheckFailed !CheckName !CheckResolutionError
   | SuiteServiceNotFound !ServiceName
   | SuiteServiceBindingFailed !BindingError
   | SuiteServiceResolutionFailed !ServiceError
@@ -136,17 +138,17 @@ data ScenarioMetadata = ScenarioMetadata
 data SuiteMetadata = SuiteMetadata
   { name :: !SuiteName,
     isolation :: !IsolationPolicy,
-    scenarios :: !(NonEmpty ScenarioMetadata),
+    scenarios :: ![ScenarioMetadata],
     summaryPath :: !(Maybe FilePath)
   }
   deriving stock (Generic, Eq, Show)
 
-data PreparedStep = HurlBatch !Int !(NonEmpty BatchCase) | ServiceBarrier !ServiceStep
+data PreparedStep = HurlBatch !Int !(NonEmpty BatchCase) | ServiceBarrier !ServiceStep | CheckBarrier !ResolvedCheck
   deriving stock (Generic, Show)
 
 data PreparedSuite = PreparedSuite
   { metadata :: !SuiteMetadata,
-    cases :: !(NonEmpty BatchCase),
+    cases :: ![BatchCase],
     batchOptions :: !BatchOptions,
     managedServices :: ![ResolvedService],
     steps :: ![PreparedStep],
@@ -161,7 +163,7 @@ suiteMetadata :: ValidatedWorkspace -> SuiteRequest -> Either SuitePreflightErro
 suiteMetadata workspace request = do
   suite <- maybe (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| []))) Right (lookupSuite (request ^. #suiteName) workspace)
   expanded <- either (Left . SuitePreflightError . (:| []) . SuiteRunPreparationFailed . SelectionPreparationFailed) Right (traverse (resolveSelection workspace . runSelection) (hurlReferences suite))
-  runs <- maybe (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| []))) Right (nonEmpty (concatMap toList expanded))
+  let runs = concatMap toList expanded
   pure
     SuiteMetadata
       { name = suite ^. #name,
@@ -212,11 +214,12 @@ prepareVerifiedSuiteWith root verified validateRendered capabilities validated r
         Just inputs -> case traverse (resolveSelection validated . runSelection) (hurlReferences suite) of
           Left err -> pure [Left (SelectionPreparationFailed err :| [])]
           Right expanded -> case nonEmpty (concatMap toList expanded) of
-            Nothing -> error "validated suite has no runs"
+            Nothing -> pure []
             Just runs -> case traverse (\run -> (run,) <$> scenarioBindingInput inputs run) runs of
               Nothing -> error "verified scenario assignment incomplete"
               Just assigned -> pure <$> prepareExpandedForSuiteAtFileRootWith root validateRendered capabilities validated (request ^. #hurlOptions) assigned
       serviceResult <- prepareManagedServices ambient suite
+      checkResults <- traverse (\name -> fmap (either (Left . SuiteCheckFailed name) Right) (prepareCheck ambient validated (request ^. #bindingInput) name)) [name | CheckRun name <- suite ^. #runs]
       let preparationIssues =
             concat
               [ map preparationIssue (NonEmpty.toList errors)
@@ -229,22 +232,25 @@ prepareVerifiedSuiteWith root verified validateRendered capabilities validated r
               not (request ^. #suiteOptions . #allowMutating),
               requiresAuthorization (prepared ^. #safety)
             ]
+          checkNames = [name | CheckRun name <- suite ^. #runs]
           duplicateIssues =
             map SuiteDuplicateArtifactStem (duplicates (map (view #artifactStem) preparedRuns))
               <> [SuiteDuplicateArtifactStem "phases" | not (null (suite ^. #setup) && null (suite ^. #teardown)), any (\run -> take 1 (splitDirectories (run ^. #artifactStem)) == ["phases"]) preparedRuns]
+              <> map (SuiteDuplicateArtifactStem . ("checks" </>) . Text.unpack . unCheckName) (duplicates checkNames)
+              <> [SuiteDuplicateArtifactStem "checks" | not (null checkNames), any (\run -> take 1 (splitDirectories (run ^. #artifactStem)) == ["checks"]) preparedRuns]
           curlIssues =
             [ SuiteSharedCurlExport path
             | length preparedRuns > 1,
               Just path <- [request ^. #hurlOptions . #curlExportPath]
             ]
           reportIssues =
-            [SuiteReportDirectoryRequired | not (Set.null (request ^. #suiteOptions . #reportFormats)) && isNothing (request ^. #suiteOptions . #reportDirectory)]
+            [SuiteReportDirectoryRequired | (not (null checkNames) || not (Set.null (request ^. #suiteOptions . #reportFormats))) && isNothing (request ^. #suiteOptions . #reportDirectory)]
           serviceIssues = either pure (const []) serviceResult
-          issues = preparationIssues <> safetyIssues <> duplicateIssues <> curlIssues <> reportIssues <> serviceIssues
+          issues = preparationIssues <> safetyIssues <> duplicateIssues <> curlIssues <> reportIssues <> serviceIssues <> [err | Left err <- checkResults]
       case nonEmpty issues of
         Just problems -> pure (Left (SuitePreflightError problems))
-        Nothing -> case (nonEmpty preparedRuns, serviceResult) of
-          (Just runs, Right (services, setup, teardown)) ->
+        Nothing -> case (preparedRuns, serviceResult) of
+          (runs, Right (services, setup, teardown)) ->
             prepareReports suite runs >>= \case
               Left problem -> pure (Left (SuitePreflightError (problem :| [])))
               Right (batchCases, _summary) ->
@@ -258,7 +264,7 @@ prepareVerifiedSuiteWith root verified validateRendered capabilities validated r
                               (request ^. #suiteOptions . #jobs)
                               (fromMaybe (suite ^. #failFast) (request ^. #suiteOptions . #failFastOverride)),
                           managedServices = services,
-                          steps = orderedSteps validated suite batchCases,
+                          steps = orderedSteps validated suite batchCases [check | Right check <- checkResults],
                           setupCommands = setup,
                           teardownCommands = teardown,
                           commandTimeout = fromIntegral (suite ^. #commandTimeoutSeconds),
@@ -319,16 +325,15 @@ prepareVerifiedSuiteWith root verified validateRendered capabilities validated r
           )
       Just reportRoot -> do
         let suiteRoot = reportRoot </> Text.unpack (unSuiteName (suite ^. #name))
-            runList = NonEmpty.toList runs
+            runList = runs
             runRoots = map ((suiteRoot </>) . view #artifactStem) runList
             formats = request ^. #suiteOptions . #reportFormats
             batchCases =
-              NonEmpty.fromList
-                [ buildBatchCase TestMode CaptureRunOutput (suiteReportTargets formats runRoot) prepared
-                | (prepared, runRoot) <- zip runList runRoots
-                ]
+              [ buildBatchCase TestMode CaptureRunOutput (suiteReportTargets formats runRoot) prepared
+              | (prepared, runRoot) <- zip runList runRoots
+              ]
             summary = suiteRoot </> "summary.json"
-        prepared <- prepareReportLayout reportRoot suiteRoot (runRoots <> [suiteRoot </> "phases" </> phase </> show ordinal | (phase, commands) <- [("setup", suite ^. #setup), ("teardown", suite ^. #teardown)], ordinal <- [0 .. length commands - 1]]) (request ^. #suiteOptions . #overwriteReports)
+        prepared <- prepareReportLayout reportRoot suiteRoot (runRoots <> [suiteRoot </> "checks" </> Text.unpack (unCheckName name) | CheckRun name <- suite ^. #runs] <> [suiteRoot </> "phases" </> phase </> show ordinal | (phase, commands) <- [("setup", suite ^. #setup), ("teardown", suite ^. #teardown)], ordinal <- [0 .. length commands - 1]]) (request ^. #suiteOptions . #overwriteReports)
         pure ((,Just summary) batchCases <$ prepared)
 
 -- | Select once before rendering, dependency probes, services, and reports.
@@ -360,21 +365,25 @@ preflightScenarioInputs workspace request = case lookupSuite (request ^. #suiteN
     failure issue = Left (SuitePreflightError (issue :| []))
 
 hurlReferences :: Suite -> [RunReference]
-hurlReferences suite = filter (not . isLifecycle) (suite ^. #runs)
+hurlReferences suite = filter (\case ServiceRun _ -> False; CheckRun _ -> False; _ -> True) (suite ^. #runs)
 
 isLifecycle :: RunReference -> Bool
 isLifecycle (ServiceRun _) = True
 isLifecycle _ = False
 
 -- | Partition adjacent Hurl references without losing global case indices.
-orderedSteps :: ValidatedWorkspace -> Suite -> NonEmpty BatchCase -> [PreparedStep]
-orderedSteps workspace suite cases = go 0 [] 0 (toList cases) (suite ^. #runs)
+orderedSteps :: ValidatedWorkspace -> Suite -> [BatchCase] -> [ResolvedCheck] -> [PreparedStep]
+orderedSteps workspace suite cases checks = go 0 [] 0 cases (suite ^. #runs)
   where
+    checkIndex = Map.fromList [(check ^. #name, check) | check <- checks]
     flush _ [] = []
     flush offset accumulated = [HurlBatch offset (NonEmpty.fromList accumulated)]
     go offset accumulated count _remaining [] = flush (offset - count) accumulated
     go offset accumulated count remaining (ServiceRun step : rest) =
       flush (offset - count) accumulated <> [ServiceBarrier step] <> go offset [] 0 remaining rest
+    go offset accumulated count remaining (CheckRun name : rest) =
+      let check = fromMaybe (error "preflighted check missing") (Map.lookup name checkIndex)
+       in flush (offset - count) accumulated <> [CheckBarrier check] <> go offset [] 0 remaining rest
     go offset accumulated count remaining (reference : rest) =
       let size = either (const 0) length (resolveSelection workspace (runSelection reference))
           (batch, later) = splitAt size remaining
@@ -385,6 +394,7 @@ runSelection = \case
   WorkflowRun name -> SelectWorkflow name
   RecipeRun name -> SelectRecipe name
   MatrixRun name -> SelectMatrix name
+  CheckRun _ -> error "check step is not a Hurl selection"
   ServiceRun _ -> error "lifecycle step is not a Hurl selection"
 
 requiresAuthorization :: SafetyDisposition -> Bool
@@ -492,12 +502,13 @@ renderSuitePreflightIssue = \case
     "run " <> quote name <> " requires --allow-mutating (" <> safetyLabel disposition <> ")"
   SuiteDuplicateArtifactStem stem -> "suite produces duplicate report path for " <> quote (Text.pack stem)
   SuiteSharedCurlExport path -> "--curl has one path and cannot be shared by multiple suite runs: " <> quote (Text.pack path)
-  SuiteReportDirectoryRequired -> "--report-dir is required when a report format is selected"
+  SuiteReportDirectoryRequired -> "--report-dir is required for checks or selected report formats"
   SuiteInvalidReportDirectory path -> "invalid report directory " <> quote (Text.pack path)
   SuiteReportPathExists path -> "report suite directory already exists; use --overwrite to replace " <> quote (Text.pack path)
   SuiteReportPathIsSymbolicLink path -> "report path must not be a symbolic link: " <> quote (Text.pack path)
   SuiteReportPathIsNotDirectory path -> "report path is not a directory: " <> quote (Text.pack path)
   SuiteReportIoError path message -> "could not prepare reports under " <> quote (Text.pack path) <> ": " <> message
+  SuiteCheckFailed name err -> "check \"" <> unCheckName name <> "\": " <> renderCheckResolutionError err
   SuiteServiceNotFound name -> "suite refers to unknown service " <> quote (unServiceName name)
   SuiteServiceBindingFailed err -> "managed service: " <> renderBindingError err
   SuiteServiceResolutionFailed err -> "managed service: " <> renderServiceError err
@@ -531,6 +542,7 @@ suitePreflightReasonCode = \case
   SuiteReportPathIsSymbolicLink _ -> "suite-report-path-symlink"
   SuiteReportPathIsNotDirectory _ -> "suite-report-path-not-directory"
   SuiteReportIoError _ _ -> "suite-report-io-error"
+  SuiteCheckFailed _ _ -> "suite-check-preparation-failed"
   SuiteServiceNotFound _ -> "suite-service-not-found"
   SuiteServiceBindingFailed _ -> "suite-service-binding-failed"
   SuiteServiceResolutionFailed _ -> "suite-service-resolution-failed"
@@ -541,5 +553,6 @@ suitePreflightSetupFailure = \case
   SuiteScenarioFailed ScenarioFileUnreadable -> True
   SuiteScenarioFailed ScenarioRuntimeInputFailed -> True
   SuiteRunPreparationFailed RunBindingFailed {} -> True
+  SuiteCheckFailed _ _ -> True
   SuiteServiceBindingFailed _ -> True
   _ -> False
