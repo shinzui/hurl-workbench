@@ -9,7 +9,10 @@ generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-11T16:18:19Z"
 requestId: IR-3
-status: proposed
+status: completed
+completedAt: "2026-11-12T14:00:23Z"
+targetPlan: docs/plans/12-support-caller-owned-file-roots-for-hurl-executions.md
+resolution: "AC-1 through AC-5 and the concurrent-content amendment verified by ExecPlan 12 (commits fb580c7 and c749bec, acceptance recorded in b3f065c): --file-root resolution, exit-2 preflight refusals for missing, non-directory, and unreadable roots, root-free summaries, concurrent separate roots with exact non-ASCII and line-ending bytes, and caller-owned roots preserved after success, Hurl failure, and interruption. macOS and ARM64 Linux release gates pass (123 core, 44 CLI tests)."
 origin: mori://tan/notification-hub
 acceptanceCriteria:
   - id: AC-1
@@ -96,3 +99,7 @@ escape the workspace for their own source paths.
 mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract includes note and document content workflows. Test payloads may be generated in fixture-owned temporary directories and must preserve exact bytes while concurrent scenarios use distinct roots. The current limitation is confinement to the workspace file root, not a Git-tracking requirement: generated files can exist there today, but that dirties shared workspaces and creates races.
 
 Keep the option scoped to one execution. Parallel independently provisioned workbench invocations each receive their own root; no global mutable root or shared generated filename is introduced. Preserve caller ownership of temporary content and verify exact non-ASCII and line-ending bytes. Fragment sources still remain workspace-contained. These additions clarify adoption acceptance without adding upload storage, content generation, or arbitrary path resolution to workbench.
+
+## Implementation plan
+
+[ExecPlan 12: Support caller-owned file roots for Hurl executions](../plans/12-support-caller-owned-file-roots-for-hurl-executions.md). ExecPlan 12 delivered AC-1 through AC-5 and the 2026-10-11 amendment on 2026-11-12 (feature commit `fb580c7`, Linux locale correction `c749bec`, acceptance record `b3f065c`).

@@ -6,7 +6,10 @@ generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-11T16:18:19Z"
 requestId: IR-5
-status: proposed
+status: completed
+completedAt: "2026-11-12T04:23:02Z"
+targetPlan: docs/plans/9-declare-scenario-isolation-and-guard-parallel-mutations.md
+resolution: "AC-1 through AC-5 verified by ExecPlan 9 (commits f078060 and 0d7a85b): old manifests decode as SharedState, unsafe parallel shared-state runs are refused before any child starts, two real Hinagata-leased databases isolate concurrent writes with duplicate-identity refusal, serial and read-only parallel modes keep working, and success, refusal, setup-failure, and cancellation summaries expose only logical isolation metadata. macOS and ARM64 Linux release gates pass (91 core, 37 CLI tests)."
 origin: mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract
 acceptanceCriteria:
   - id: AC-1
@@ -59,3 +62,6 @@ Define an integration contract for caller-provisioned independent scenarios. Eac
 
 This request is a prerequisite for moving parallel mutation execution into workbench. Serial execution under Rei's existing fixture harness remains a valid first adoption. No reusable pool of previously mutated databases or automatic PostgreSQL provisioning is requested. HTTP mutation scenarios retain single POST attempts and bounded GET observation.
 
+## Implementation plan
+
+[ExecPlan 9: Declare scenario isolation and guard parallel mutations](../plans/9-declare-scenario-isolation-and-guard-parallel-mutations.md). ExecPlan 9 delivered AC-1 through AC-5 on 2026-11-12 (commits `f078060` and `0d7a85b`), including the real two-lease Hinagata provider run.

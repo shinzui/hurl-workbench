@@ -6,7 +6,10 @@ generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-11T16:18:19Z"
 requestId: IR-6
-status: accepted
+status: completed
+completedAt: "2026-11-12T14:23:03Z"
+targetPlan: docs/plans/8-support-explicit-clean-environments-for-managed-processes.md
+resolution: "AC-1, AC-2, AC-4, and AC-5 verified by ExecPlan 8 (commits 9302b4b through bb94fcd), including three real SCRAM-authenticated Hinagata leases released after managed consumers stopped. AC-3 covered service startup and command readiness in ExecPlan 8; the lifecycle extensions then applied the same policy: ExecPlan 10 setup/teardown/service commands run Clean against the real Rei consumer (docs/evidence/10-multi-service-lifecycle.json), and ExecPlan 13 checks run Clean with ambient REI_/MORI_/PG names asserted absent (commit 64af575)."
 origin: mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell-jitsurei-contract
 acceptanceCriteria:
   - id: AC-1
@@ -61,4 +64,4 @@ Required before workbench replaces Rei's scrubbed managed-process harness. An ex
 
 ## Implementation plan
 
-[ExecPlan 8: Support explicit clean environments for managed processes](../plans/8-support-explicit-clean-environments-for-managed-processes.md) covers AC-1 through AC-5. The work is planned; implementation and acceptance verification have not started.
+[ExecPlan 8: Support explicit clean environments for managed processes](../plans/8-support-explicit-clean-environments-for-managed-processes.md). ExecPlan 8 delivered AC-1 through AC-5 for service startup and command readiness, completing real Hinagata lease acceptance on 2026-11-12 (commit `bb94fcd`). AC-3's lifecycle and check phases were added later and apply the same policy: [ExecPlan 10](../plans/10-support-ordered-multi-service-suite-lifecycles.md) runs setup, teardown, and services under Clean policy against the real Rei consumer, and [ExecPlan 13](../plans/13-run-executable-checks-as-ordered-suite-barriers.md) covers executable checks (commit `64af575`).

@@ -9,7 +9,10 @@ generated:
   by: anthropic/claude-fable-5-1
   at: "2026-09-24T14:20:00Z"
 requestId: IR-2
-status: proposed
+status: completed
+completedAt: "2026-11-12T06:08:13Z"
+targetPlan: docs/plans/11-generate-fresh-parameters-for-each-workflow-execution.md
+resolution: "AC-1 through AC-3 verified by ExecPlan 11 (commit bec9eb9): CLI tests capture rcp_ TypeIDs decoding to version-7 UUIDs, distinct values across direct, matrix, and suite executions with equality across fragments of one execution, an unchanged --variable override, and validation rejections for defaults and matrix-case bindings. macOS and ARM64 Linux release gates pass (116 core, 40 CLI tests); ADR 9 records the contract."
 origin: mori://tan/notification-hub
 acceptanceCriteria:
   - id: AC-1
@@ -81,3 +84,7 @@ generated parameter, and the reserved Hurl function names stay reserved.
 
 Nothing about this request changes fragments or asks the workbench to parse Hurl; the value enters
 through the existing binding channel.
+
+## Implementation plan
+
+[ExecPlan 11: Generate fresh parameters for each workflow execution](../plans/11-generate-fresh-parameters-for-each-workflow-execution.md). ExecPlan 11 delivered AC-1 through AC-3 and all five generator forms on 2026-11-12 (commit `bec9eb9`). [ADR 9](../adr/9-per-execution-generated-inputs.md) records the per-execution generation contract.

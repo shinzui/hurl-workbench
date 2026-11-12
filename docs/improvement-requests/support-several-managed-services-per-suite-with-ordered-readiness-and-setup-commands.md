@@ -9,7 +9,10 @@ generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-11T16:18:19Z"
 requestId: IR-1
-status: proposed
+status: completed
+completedAt: "2026-11-12T14:23:03Z"
+targetPlan: docs/plans/10-support-ordered-multi-service-suite-lifecycles.md
+resolution: "AC-1 through AC-7 verified by ExecPlan 10 (commits 1d3b545 and 1cae8df): ordered multi-service startup, setup/teardown phases, Stop/Start/Restart barriers at jobs=2, reverse cleanup and exit-4 semantics, and a real Rei 8 API/stub/projection-owner run inside a caller-owned Hinagata lease recorded in docs/evidence/10-multi-service-lifecycle.json, with IR-5 isolation refusal and IR-6 Clean policy jointly exercised. The AC-2 check-failure variant was completed by ExecPlan 13 (commit 64af575, CLI test 'a check failure still tears down services before teardown'). macOS and ARM64 Linux release gates pass."
 origin: mori://tan/notification-hub
 acceptanceCriteria:
   - id: AC-1
@@ -121,3 +124,7 @@ mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell
 Make lifecycle steps barriers around parallel HTTP batches. Intentional worker stops must suspend the relevant monitor rather than trigger the unexpected-exit path. Record every start, readiness, stop, restart, and cleanup outcome by logical service name. Stop successfully started services in reverse order after partial startup; retain the primary test/startup failure separately from cleanup errors, and report failure when cleanup alone fails. Teardown executes within a bounded cleanup phase even after interruption.
 
 Keep a caller-provided PostgreSQL lease outside workbench ownership. In the `mori://shinzui/hinagata` handoff, workbench stops API/stub/worker consumers before returning to lease release. Joint verification with `mori://shinzui/hurl-workbench/okf/improvement-requests/concepts/IR-5` and `mori://shinzui/hurl-workbench/okf/improvement-requests/concepts/IR-6` must preserve scenario isolation and the selected clean environment policy. Existing one-service manifests remain compatible. The added criteria describe required future evidence; this amendment does not claim implementation or passing tests.
+
+## Implementation plan
+
+[ExecPlan 10: Support ordered multi-service suite lifecycles](../plans/10-support-ordered-multi-service-suite-lifecycles.md). ExecPlan 10 delivered AC-1 through AC-7 and the 2026-10-11 amendment on 2026-11-12 (commits `1d3b545` and `1cae8df`). Real-consumer acceptance used the Rei 8.0.0.0 cohort, not Rei 9, inside a caller-owned Hinagata lease; the sanitized record is [docs/evidence/10-multi-service-lifecycle.json](../evidence/10-multi-service-lifecycle.json). AC-2's check-failure variant waited for the executable-check interface and was completed by [ExecPlan 13](../plans/13-run-executable-checks-as-ordered-suite-barriers.md) (commit `64af575`).

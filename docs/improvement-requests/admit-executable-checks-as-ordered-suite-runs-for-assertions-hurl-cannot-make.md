@@ -10,7 +10,10 @@ generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-11T16:18:19Z"
 requestId: IR-4
-status: proposed
+status: completed
+completedAt: "2026-11-12T14:51:11Z"
+targetPlan: docs/plans/13-run-executable-checks-as-ordered-suite-barriers.md
+resolution: "AC-1 through AC-6 verified by ExecPlan 13 (commits 64af575 and 7200166): recipe/check/recipe ordering with named check failure in summary.json, Plain-only argv substitution with secrets through environment bindings, containment and duplicate-name validation, barrier ordering at jobs=2 with fail-fast, process-group timeout and cancellation reported apart from cleanup, and a real Rei CLI/HTTP category-parity check on two independent Hinagata clones with a failing mismatch. AC-6 is met through the parity alternative; semantic event-count checks were not exercised. macOS and ARM64 Linux release gates pass (135 core, 52 CLI tests)."
 origin: mori://tan/notification-hub
 acceptanceCriteria:
   - id: AC-1
@@ -106,3 +109,7 @@ mori://shinzui/rei/masterplans/29-close-rei-cli-and-http-api-gaps-on-the-haskell
 Define checks as ordering barriers around the existing parallel batch engine, not as another concurrently scheduled batch member. Each check owns a bounded process group and report directory. Timeout, cancellation, expected-status mismatch, and cleanup failure must be distinguishable, while fail-fast prevents later dependent steps from starting. Retain the primary check failure if cleanup also fails.
 
 Allow declared runtime inputs to identify the two independent fixture targets. Apply the clean environment policy from `mori://shinzui/hurl-workbench/okf/improvement-requests/concepts/IR-6` when that extension is present. Typed contract/client, schema, and package-closure gates remain independently owned tests; this request enables useful ordered assertions rather than requiring every gate to move into workbench. Existing review entries cover the previous revision; the additional procedures are proposed acceptance evidence.
+
+## Implementation plan
+
+[ExecPlan 13: Run executable checks as ordered suite barriers](../plans/13-run-executable-checks-as-ordered-suite-barriers.md). ExecPlan 13 delivered AC-1 through AC-6 and the 2026-10-11 amendment on 2026-11-12 (commits `64af575` and `7200166`). AC-6 is satisfied by the independently provisioned CLI/HTTP parity alternative; semantic event-count checks were not exercised and complete Rei operation coverage is not claimed.
