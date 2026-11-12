@@ -2,6 +2,12 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-5 resolved: Linux container release validation uses devShells.check; all 91 core and 37 CLI tests plus the complete release gate pass.
+
+
+* **Addition**: FRIC-5 records detour tooling friction with mori://shinzui/hurl-workbench: Linux release gate realizes editor-only HLS dependencies
+
+
 * **Update**: FRIC-4 resolved: Registry list/search/show/docs succeed with the current profile endpoint; continue dependency and Hinagata integration.
 
 

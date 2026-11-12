@@ -7,6 +7,7 @@ module HurlWorkbench.Run.Prepare
     prepareSelectionForSuite,
     prepareSelectionForSuiteWith,
     prepareSelectionWith,
+    prepareExpandedForSuiteWith,
     buildBatchCase,
     renderPreparationError,
   )
@@ -66,14 +67,20 @@ prepareSelectionUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> Bi
 prepareSelectionUsing resolveBindings validateRendered capabilities validated input hurlOptions selection =
   case resolveSelection validated selection of
     Left err -> pure (Left (SelectionPreparationFailed err :| []))
-    Right expanded -> do
-      (_cache, errors, prepared) <- foldM prepareOne (Map.empty, [], []) (NonEmpty.toList expanded)
-      pure $ case (nonEmpty (reverse errors), nonEmpty (reverse prepared)) of
-        (Just problems, _) -> Left problems
-        (Nothing, Just ready) -> Right ready
-        (Nothing, Nothing) -> error "prepareSelection: impossible empty expanded selection"
+    Right expanded -> prepareExpandedUsing resolveBindings validateRendered capabilities validated hurlOptions (fmap (,input) expanded)
+
+prepareExpandedForSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> HurlOptions -> NonEmpty (ExpandedRun, BindingInput) -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareExpandedForSuiteWith = prepareExpandedUsing resolveWorkflowBindingSubsetWithLayers
+
+prepareExpandedUsing :: (ValidatedWorkspace -> Workflow -> [BindingLayer] -> BindingInput -> IO (Either BindingError ResolvedBindings)) -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> HurlOptions -> NonEmpty (ExpandedRun, BindingInput) -> IO (Either (NonEmpty PreparationError) (NonEmpty PreparedRun))
+prepareExpandedUsing resolveBindings validateRendered capabilities validated hurlOptions assignedRuns = do
+  (_cache, errors, prepared) <- foldM prepareOne (Map.empty, [], []) (NonEmpty.toList assignedRuns)
+  pure $ case (nonEmpty (reverse errors), nonEmpty (reverse prepared)) of
+    (Just problems, _) -> Left problems
+    (Nothing, Just ready) -> Right ready
+    (Nothing, Nothing) -> error "prepareExpandedUsing: impossible empty expanded selection"
   where
-    prepareOne (cache, errors, prepared) expanded = do
+    prepareOne (cache, errors, prepared) (expanded, input) = do
       (nextCache, cached) <- cachedWorkflow cache expanded
       case cached of
         CachedRenderFailure err -> pure (nextCache, RunRenderFailed (expanded ^. #displayName) err : errors, prepared)

@@ -5,6 +5,7 @@ import HurlWorkbench.Parameter.ParameterTest qualified as ParameterTest
 import HurlWorkbench.Run.SelectionTest qualified as SelectionTest
 import HurlWorkbench.Service.RunTest qualified as ServiceRunTest
 import HurlWorkbench.Suite.RunTest qualified as SuiteRunTest
+import HurlWorkbench.Suite.ScenarioTest qualified as ScenarioTest
 import HurlWorkbench.Workflow.WorkflowTest qualified as WorkflowTest
 import HurlWorkbench.Workspace.NameSafetyTest qualified as NameSafetyTest
 import HurlWorkbench.Workspace.WorkspaceTest qualified as WorkspaceTest
@@ -32,6 +33,7 @@ runTests =
           SelectionTest.tests,
           ServiceRunTest.tests,
           SuiteRunTest.tests,
+          ScenarioTest.tests,
           WorkspaceTest.tests,
           NameSafetyTest.tests,
           WorkflowTest.tests

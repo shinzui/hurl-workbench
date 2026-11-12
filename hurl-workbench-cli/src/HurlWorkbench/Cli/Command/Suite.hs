@@ -21,9 +21,9 @@ import HurlWorkbench.Hurl.Run (mkHurlRunner)
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Prepare (PreparationError (..))
 import HurlWorkbench.Service.Resolve (renderServiceError)
-import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Suite.Resolve qualified as Suite
 import HurlWorkbench.Suite.Run qualified as Suite
+import HurlWorkbench.Suite.Scenario
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import System.FilePath (isAbsolute, (</>))
 
@@ -42,59 +42,60 @@ runSuiteCommandWith detectCapabilities validateRendered global currentDirectory 
     Left errors -> pure (cliFailure 2 errors)
     Right validated -> case validateOptions options of
       Just problem -> pure (cliFailure 2 [problem])
-      Nothing
-        | problems@(_ : _) <- checkSuiteIsolation validated (options ^. #suite) (options ^. #jobs) ->
-            pure (cliErrors 2 (map renderIsolationIssue problems))
       Nothing -> case buildRuntimeInputs (options ^. #bindings) (options ^. #hurl) of
         Left errors -> pure (cliErrors 2 errors)
-        Right (bindingInput, hurlOptions) ->
-          detectCapabilities >>= \case
-            Left err -> pure (cliFailure 3 [renderDependencyError err])
-            Right capabilities -> do
-              let requestedReportDirectory = fmap resolvePath (options ^. #reportDirectory)
-                  request =
-                    Suite.SuiteRequest
-                      { suiteName = options ^. #suite,
-                        bindingInput,
-                        hurlOptions,
-                        suiteOptions =
-                          Suite.SuiteOptions
-                            { jobs = options ^. #jobs,
-                              failFastOverride = options ^. #failFastOverride,
-                              allowMutating = options ^. #allowMutating,
-                              manageService = not (options ^. #externalService),
-                              reportFormats = Set.fromList (options ^. #reportFormats),
-                              reportDirectory = requestedReportDirectory,
-                              overwriteReports = options ^. #overwrite
+        Right (bindingInput, hurlOptions) -> do
+          let request scenarioInputs =
+                Suite.SuiteRequest
+                  { suiteName = options ^. #suite,
+                    scenarioInputs,
+                    bindingInput,
+                    hurlOptions,
+                    suiteOptions =
+                      Suite.SuiteOptions
+                        { jobs = options ^. #jobs,
+                          failFastOverride = options ^. #failFastOverride,
+                          allowMutating = options ^. #allowMutating,
+                          manageService = not (options ^. #externalService),
+                          reportFormats = Set.fromList (options ^. #reportFormats),
+                          reportDirectory = fmap resolvePath (options ^. #reportDirectory),
+                          overwriteReports = options ^. #overwrite
+                        }
+                  }
+              refusal inputs err = preflightResult <$> Suite.finalizeSuitePreflight validated (request inputs) err
+          loaded <- case options ^. #scenarioInputsFile of
+            Nothing -> pure (Right Nothing)
+            Just path -> fmap Just <$> loadScenarioInputs (resolvePath path)
+          case loaded of
+            Left issue -> refusal Nothing (Suite.SuitePreflightError (Suite.SuiteScenarioFailed issue :| []))
+            Right inputs ->
+              Suite.preflightScenarioInputs validated (request inputs) >>= \case
+                Left err -> refusal inputs err
+                Right _ ->
+                  detectCapabilities >>= \case
+                    Left _ -> refusal inputs (Suite.SuitePreflightError (Suite.SuiteDependencyUnavailable :| []))
+                    Right capabilities ->
+                      Suite.runSuiteWith validateRendered (mkHurlRunner capabilities) (capabilities ^. #hurlfmt) validated (request inputs) <&> \case
+                        Left err -> preflightResult err
+                        Right result ->
+                          CommandResult
+                            { stdoutLines = [],
+                              stderrLines =
+                                hurlCapabilityWarnings capabilities
+                                  <> replayCaptured (result ^. #cases)
+                                  <> map renderCaseSummary (toList (result ^. #cases))
+                                  <> renderServiceOutcome (result ^. #serviceOutcome)
+                                  <> maybe [] (pure . ("SUMMARY " <>) . Text.pack) (result ^. #summaryPath)
+                                  <> maybe [] (pure . ("ERROR " <>)) (result ^. #summaryError),
+                              exitCode = result ^. #selectedExitCode
                             }
-                      }
-              Suite.runSuiteWith
-                validateRendered
-                (mkHurlRunner capabilities)
-                (capabilities ^. #hurlfmt)
-                validated
-                request
-                <&> \case
-                  Left err ->
-                    cliErrors
-                      (preflightExitCode err)
-                      (map (("preflight: " <>) . Suite.renderSuitePreflightIssue) (toList (err ^. #issues)))
-                  Right result ->
-                    CommandResult
-                      { stdoutLines = [],
-                        stderrLines =
-                          hurlCapabilityWarnings capabilities
-                            <> replayCaptured (result ^. #cases)
-                            <> map renderCaseSummary (toList (result ^. #cases))
-                            <> renderServiceOutcome (result ^. #serviceOutcome)
-                            <> maybe [] (pure . ("SUMMARY " <>) . Text.pack) (result ^. #summaryPath)
-                            <> maybe [] (pure . ("ERROR " <>)) (result ^. #summaryError),
-                        exitCode = result ^. #selectedExitCode
-                      }
   where
     resolvePath path
       | isAbsolute path = path
       | otherwise = currentDirectory </> path
+
+preflightResult :: Suite.SuitePreflightError -> CommandResult
+preflightResult err = cliErrors (preflightExitCode err) (map (("preflight: " <>) . Suite.renderSuitePreflightIssue) (toList (err ^. #issues)))
 
 validateOptions :: SuiteCommandOptions -> Maybe Text
 validateOptions options
@@ -106,6 +107,9 @@ preflightExitCode :: Suite.SuitePreflightError -> Int
 preflightExitCode error_ = maximum (2 : map issueExitCode (toList (error_ ^. #issues)))
   where
     issueExitCode = \case
+      Suite.SuiteScenarioFailed ScenarioFileUnreadable -> 3
+      Suite.SuiteDependencyUnavailable -> 3
+      Suite.SuiteReportIoError {} -> 3
       Suite.SuiteRunPreparationFailed (RunFormatFailed _ HurlfmtNotFound {}) -> 3
       Suite.SuiteRunPreparationFailed (RunFormatFailed _ HurlfmtFailed {}) -> 3
       _ -> 2

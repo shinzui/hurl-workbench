@@ -30,7 +30,9 @@ failure, a failure before spawn, and a case skipped after fail-fast are distinct
 validated value and defaults to one at the CLI boundary. A worker removes a case only when it can
 start that case. With fail-fast enabled, the first observed unsuccessful result closes scheduling;
 already-active workers finish and are reaped, while untouched queue entries become explicit skipped
-results.
+results. Failure state and completed results are published under masking before observers run,
+so cancellation cannot lose a completed result between child return and publication, and a
+failure observer cannot allow another worker to schedule queued work before fail-fast closes.
 
 Every case invokes the EP-3 `HurlRunner` independently. Batch execution retains a four-way outcome:
 passed, Hurl-failed with the exact child status, start-failed with the typed EP-3 error, or skipped
@@ -58,8 +60,12 @@ permit requested concurrency greater than one only when every expanded run is ex
 ReadOnly. Mutating and unclassified runs are refused before preparation or process probes,
 including when just one run expands. Standalone mutating matrices use the same serial guard.
 Mutation permission remains a separate opt-in; external-service mode does not bypass isolation.
-IndependentState is reserved for verified caller-provisioned scenario resources and currently
-fails closed pending the runtime handoff in [plan 9](../plans/9-declare-scenario-isolation-and-guard-parallel-mutations.md).
+IndependentState suites require a complete verified handoff assigning a unique caller-owned
+fixture identity and endpoint origin per logical scenario, with separately resolved binding input.
+The configured jobs bound still applies to active Hurl processes; workbench acquires no leases or
+per-scenario services. Separate origins and opaque IDs are trusted provider assertions, not proof
+that two databases differ. Real two-lease acceptance corroborates HTTP observations through direct
+database queries. Standalone matrices retain the shared-state serial mutation guard.
 
 Each case performs a complete independent Hurl session, including authentication. This spends more
 requests than shared-session execution but avoids cross-case capture, cookie, and token state. Users

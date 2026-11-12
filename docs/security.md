@@ -75,5 +75,21 @@ one permits only explicitly `ReadOnly` recipes; mutating and unclassified runs a
 capability probes, binding IO, report replacement, or service startup. Mutation authorization is
 separate: `--allow-mutating` permits serial writes and does not bypass isolation. Standalone
 mutating matrices require serial execution too. Distinct Hurl sessions isolate client captures
-and cookies; they do not isolate server resources. `IndependentState` currently refuses execution
-until a verified per-scenario handoff is implemented.
+and cookies; they do not isolate server resources.
+
+IndependentState requires caller-owned ready services, `--external-service`, and a verified private
+scenario-inputs file. The entire scenario/fixture/endpoint assignment is checked before execution;
+fixture IDs and normalized origins must be unique. IDs are trusted assertions, and different DNS
+names can still reach the same state. The caller must verify real provider identity, hold leases
+until Hurl cleanup completes, then stop services and release leases. Workbench never provisions,
+stops, or releases these external resources. Handoff files and connection metadata are not copied
+to reports or argv. Secret environment references resolve to protected secret files.
+
+Success, safely reportable refusal/setup failure, and cancellation summaries contain only logical
+isolation metadata. Refusal reports do not invent child exit statuses or report artifacts.
+Cancellation writes its best-effort summary after cleanup and propagates the original signal.
+Summary-write failure cannot replace a managed-service failure or swallow cancellation.
+User-controlled report symlinks, including ancestor links, are rejected. macOS's fixed OS-owned
+`/tmp` and `/var` aliases are accepted only when they resolve to `/private/tmp` and `/private/var`.
+The [handoff guide](guides/integration-testing.md#independent-scenario-handoff) defines binding
+conflicts, endpoint validation, and the provider trust boundary.

@@ -30,6 +30,7 @@ import Control.Concurrent.STM
     writeTQueue,
     writeTVar,
   )
+import Control.Exception (mask)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
@@ -71,6 +72,7 @@ instance Show BatchCase where
 data SkipReason
   = FailFastTriggered
   | BatchPrerequisiteFailed
+  | BatchCancelled
   deriving stock (Generic, Eq, Show)
 
 data CaseOutcome
@@ -122,11 +124,12 @@ runBatchObserved runner options batchCases observe = do
       nextWork queue stopped >>= \case
         Nothing -> pure ()
         Just (caseIndex, batchCase) -> do
-          result <- executeCase runner batchCase
-          observe caseIndex result
-          atomically $ do
-            modifyTVar' results (Map.insert caseIndex result)
-            when (options ^. #failFast && caseFailed result) (writeTVar stopped True)
+          mask $ \restore -> do
+            result <- restore (executeCase runner batchCase)
+            atomically $ do
+              modifyTVar' results (Map.insert caseIndex result)
+              when (options ^. #failFast && caseFailed result) (writeTVar stopped True)
+            observe caseIndex result
           worker queue results stopped
 
     nextWork :: TQueue (Int, BatchCase) -> TVar Bool -> IO (Maybe (Int, BatchCase))

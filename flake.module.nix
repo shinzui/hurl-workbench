@@ -29,6 +29,22 @@
         pkgs.ripgrep
       ];
 
+      # Release checks need the pinned compiler and CLI tools, while the editor
+      # language server adds a large unrelated source build on fresh Linux hosts.
+      devShells.check = inputs.haskell-nix-dev.lib.${system}.mkDevShell {
+        ghc = "ghc9124";
+        withHls = false;
+        extraNativeBuildInputs = [
+          pkgs.zlib
+          pkgs.just
+          pkgs.pkg-config
+          pkgs.curl
+          pkgs.hurl
+          pkgs.python3
+          pkgs.ripgrep
+        ];
+      };
+
       packages.hurl-workbench-core = corePackage;
       packages.hurl-workbench-cli = cliPackage;
       packages.default = cliPackage;

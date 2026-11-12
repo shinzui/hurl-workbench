@@ -4,6 +4,7 @@ module HurlWorkbench.Suite.Isolation
   ( IsolationIssue (..),
     checkIsolation,
     checkSuiteIsolation,
+    checkSuiteIsolationWith,
     renderIsolationIssue,
   )
 where
@@ -13,6 +14,7 @@ import Data.Text qualified as Text
 import HurlWorkbench.Prelude
 import HurlWorkbench.Run.Batch (PositiveInt, positiveIntValue)
 import HurlWorkbench.Run.Selection
+import HurlWorkbench.Suite.Scenario (VerifiedScenarioInputs)
 import HurlWorkbench.Workspace.Context
 import HurlWorkbench.Workspace.Types
 
@@ -32,8 +34,12 @@ checkIsolation SharedState jobs runs =
 
 -- | Expansion is pure; malformed references are handled by normal preparation.
 checkSuiteIsolation :: ValidatedWorkspace -> SuiteName -> PositiveInt -> [IsolationIssue]
-checkSuiteIsolation workspace name jobs = case lookupSuite name workspace of
+checkSuiteIsolation workspace name jobs = checkSuiteIsolationWith Nothing workspace name jobs
+
+checkSuiteIsolationWith :: Maybe VerifiedScenarioInputs -> ValidatedWorkspace -> SuiteName -> PositiveInt -> [IsolationIssue]
+checkSuiteIsolationWith verified workspace name jobs = case lookupSuite name workspace of
   Nothing -> []
+  Just suite | suite ^. #isolation == IndependentState, isJust verified -> []
   Just suite -> checkIsolation (suite ^. #isolation) jobs (concatMap expanded (suite ^. #runs))
   where
     expanded reference = either (const []) toList (resolveSelection workspace (selection reference))

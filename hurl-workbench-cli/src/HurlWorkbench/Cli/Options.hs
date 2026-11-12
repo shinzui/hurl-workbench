@@ -132,6 +132,7 @@ data SuiteCommandOptions = SuiteCommandOptions
     failFastOverride :: !(Maybe Bool),
     allowMutating :: !Bool,
     externalService :: !Bool,
+    scenarioInputsFile :: !(Maybe FilePath),
     reportFormats :: ![ReportFormat],
     reportDirectory :: !(Maybe FilePath),
     overwrite :: !Bool,
@@ -446,6 +447,7 @@ suiteCommandOptionsParser =
     <*> parserOptionGroup
       "Service lifecycle"
       (switch (long "external-service" <> help "Use an already-running service and skip managed startup, readiness, and shutdown"))
+    <*> optional (strOption (long "scenario-inputs" <> metavar "FILE" <> help "Private per-scenario fixture and endpoint assignments"))
     <*> suiteReportOptionsParser
     <*> bindingOptionsParser
     <*> httpRetryOptionsParser
@@ -456,6 +458,7 @@ suiteCommandOptionsParser =
       suite
       (SuiteControlOptions jobs failFastOverride allowMutating)
       externalService
+      scenarioInputsFile
       (SuiteReportOptions reportFormats reportDirectory overwrite)
       bindings
       http
@@ -467,6 +470,7 @@ suiteCommandOptionsParser =
             failFastOverride,
             allowMutating,
             externalService,
+            scenarioInputsFile,
             reportFormats,
             reportDirectory,
             overwrite,

@@ -20,6 +20,9 @@ extra-source-files:
   examples/**/*.hurl
   examples/**/*.md
   schema/*.dhall
+  test/fixtures/scenario-isolation/*.dhall
+  test/fixtures/scenario-isolation/*.py
+  test/fixtures/scenario-isolation/hurl/*.hurl
   test/golden/top-level-help.txt
   test/golden/unknown-workflow.txt
 
@@ -141,5 +144,6 @@ test-suite hurl-workbench-cli-test
     tasty-hunit ^>=0.10,
     temporary,
     text,
+    unix,
     wai,
     warp,

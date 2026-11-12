@@ -66,3 +66,38 @@ contain data intentionally emitted by those programs.
 
 For a caller-owned database lease, explicitly select its PG variables and protected PGPASSFILE
 when needed; keep the password file until consumer cleanup and lease release finish.
+
+## Independent scenarios
+
+Shared-state writes use `--jobs 1 --allow-mutating`; requesting more jobs is refused even
+with one expanded run. The read-only default suite can use `--jobs 2`.
+
+`independent.dhall` declares an `IndependentState` suite with two mutating cases. A trusted
+caller must provision one ready service and fixture per scenario, hold both until workbench
+returns, and generate a private version-1 JSON handoff. Each assignment names `writes/first`
+or `writes/second`, a distinct fixture ID, a distinct HTTP(S) endpoint origin, `baseUrl` as the
+endpoint parameter, a plain `marker` binding, and a `token` secret-environment reference.
+All channels are required, including empty lists when unused. See the
+[integration guide](../../docs/guides/integration-testing.md#independent-scenario-handoff) for the full JSON contract.
+
+After provisioning and generating `scenario-inputs.json` with mode `0600` in a private directory:
+
+```bash
+cabal run hurl-workbench -- \
+  --workspace examples/integration-service/independent.dhall \
+  test suite independent-writes --external-service \
+  --scenario-inputs scenario-inputs.json --allow-mutating --jobs 2 \
+  --report json --report-dir build/independent-reports
+```
+
+This fixture expects a POST/GET `/markers` service. The acceptance driver provisions two
+fresh real Hinagata databases and one such service per database, then proves concurrent writes,
+read isolation, refusal, fail-fast, cancellation, and caller-owned release:
+
+```bash
+bash scripts/check-scenario-isolation.sh
+```
+
+Run it in a development shell with PostgreSQL tools, built workbench and Hinagata executables,
+and the provider's packaged SQL resources. The [integration guide](../../docs/guides/integration-testing.md#real-provider-acceptance)
+gives the complete setup. Workbench never acquires or releases the databases.

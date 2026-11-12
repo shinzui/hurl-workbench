@@ -65,6 +65,7 @@ examples: cabal-index
     "$workbench" --workspace examples/integration-service/hurl-workbench.dhall test suite writes --allow-mutating; \
     echo "examples: PASS"
     bash scripts/check-clean-environment-lease-simulation.sh
+    HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)" python3 scripts/check-scenario-isolation-local.py
 
 sdist: cabal-index
     bash scripts/check-sdist.sh

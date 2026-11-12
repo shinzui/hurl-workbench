@@ -18,9 +18,9 @@ expands. Parallel shared-state suites must contain only `ReadOnly` recipes. The 
 to standalone mutating matrices. Separate Hurl sessions do not establish separate application
 state, and `--external-service` does not change the isolation check.
 
-`Schema.IsolationPolicy.IndependentState` reserves an explicit policy for caller-provisioned
-scenario state. It cannot declare a shared managed service. Execution currently refuses this
-policy pending the verified runtime handoff implementation in [plan 9](../plans/9-declare-scenario-isolation-and-guard-parallel-mutations.md).
+`Schema.IsolationPolicy.IndependentState` requires an explicit runtime handoff assigning one
+caller-provisioned fixture and endpoint per scenario. It cannot declare a shared managed service;
+use `--external-service`. Mutation still requires `--allow-mutating`.
 
 Keep auth, CORS, network-perimeter, and other environment-sensitive checks in named
 opt-in suites instead of broad filesystem globs.
@@ -88,7 +88,7 @@ cabal run hurl-workbench -- \
 Each expanded run owns a directory such as
 `build/reports/default/read-echo/`. JUnit uses `junit.xml`, HTML uses `html/`, JSON uses `json/`,
 and TAP uses `report.tap`. `build/reports/default/summary.json` contains only logical names,
-statuses, durations, and relative report paths. Existing suite report trees are rejected; add
+statuses, isolation policy, logical scenarios, durations, and relative report paths. Existing suite report trees are rejected; add
 `--overwrite` to replace exactly that suite subtree.
 
 Report metadata and summaries omit bindings, child environments, captured diagnostics, and
@@ -217,3 +217,115 @@ All three leases passed database access, consumer shutdown, release, database ab
 password-file removal checks. Plan 8 records the acceptance evidence. Earlier registry failures
 came from a stale inherited `MORI_PG_CONNECTION_STRING`; using the current endpoint from the
 user's shell profile restored discovery without restarting PostgreSQL.
+
+## Independent scenario handoff
+
+A scenario is one expanded run: a direct workflow/recipe name or `matrix/case`. Declare
+`isolation = Schema.IsolationPolicy.IndependentState` on the suite and omit `service`.
+The caller provisions each fixture, starts its service, checks readiness and database identity,
+and holds every lease until workbench returns after reaping Hurl children. It then stops its
+services before releasing leases. Workbench only validates and consumes the handoff; it owns no
+provider service or lease. Separate Hurl sessions alone do not establish application isolation.
+
+Create the handoff once in a private temporary directory, with file mode `0600`. Pass its path
+through `--scenario-inputs`, relative to the invocation directory or absolute. Version 1 requires
+exactly these fields, including empty lists when unused; unknown fields and unsupported versions
+are refused:
+
+```json
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "scenario": "writes/first",
+      "fixtureId": "caller-fixture-a",
+      "endpoint": "http://127.0.0.1:18181",
+      "endpointParameter": "baseUrl",
+      "bindings": [{"parameter": "marker", "value": "first-marker"}],
+      "secretEnvironment": [{"parameter": "token", "variable": "FIRST_TOKEN"}]
+    },
+    {
+      "scenario": "writes/second",
+      "fixtureId": "caller-fixture-b",
+      "endpoint": "http://127.0.0.1:18182",
+      "endpointParameter": "baseUrl",
+      "bindings": [{"parameter": "marker", "value": "second-marker"}],
+      "secretEnvironment": [{"parameter": "token", "variable": "SECOND_TOKEN"}]
+    }
+  ]
+}
+```
+
+The example labels/identities/ports illustrate the shape; the provider must supply the actual
+ready resources. Every expanded scenario must appear exactly once, with no extras, duplicate
+fixture IDs, or duplicate endpoint origins. A fixture ID is opaque, nonempty private provider
+metadata with no control characters. Endpoint origins compare lowercase scheme/host and effective
+port: `http://EXAMPLE.test` and `http://example.test:80/` collide. Only root HTTP(S) endpoints are
+accepted; userinfo, query, fragment, and non-root paths are refused. Distinct paths on one server
+cannot establish independence.
+
+The caller is trusted to describe real isolation truthfully. Workbench cannot prove that distinct
+opaque IDs or DNS aliases lead to distinct databases. Verify provider database identity privately;
+the acceptance driver corroborates HTTP observations with direct queries to both leased databases.
+A failed or incomplete allocation must prevent invocation, and partial acquisition must release
+all successfully acquired leases after consumers stop.
+
+`endpointParameter` must name a declared Plain workflow parameter. `bindings` supplies additional
+Plain literals; `secretEnvironment` names declared Secret parameters and environment variables,
+resolved through the existing protected secret channel. Missing variables and invalid Hurl
+literals fail preflight without printing values. A parameter may occur in only one handoff
+channel. A handoff-supplied parameter cannot also occur in suite runtime overrides, variable or
+secret files, or committed recipe/case bindings. Such conflicts fail rather than overriding the
+provider. Valid explicit handoff values override declared defaults/environment fallback. Other
+suite input retains ordinary precedence and per-workflow subset resolution.
+
+All assignment and binding preparation finishes before scheduling Hurl. Cases use the ordinary
+bounded worker pool, fail-fast, and declaration ordering. Standalone matrices have no independent
+handoff; migrate shared writes to `--jobs 1 --allow-mutating`, or place independent cases in a
+suite using this contract. See [the example](../../examples/integration-service/independent.dhall).
+
+Workbench summaries contain isolation and logical scenario names, never fixture IDs, endpoint
+URLs, binding/environment values or names, connection strings, provider errors, or captured output.
+Safely reportable refusals have `status: refused`, stable `reasonCodes`, and `not-started` cases
+with no invented Hurl exit or report artifacts. Missing runtime input uses `setup-failed`.
+Unknown suites and unsafe/conflicting report destinations cannot receive a summary there.
+Cancellation joins owned children, retains completed outcomes, writes a best-effort `cancelled`
+summary with unfinished cases marked `cancelled`, then rethrows the interruption. It does not
+release provider resources. Hurl-generated reports and response content remain sensitive.
+
+## Real provider acceptance
+
+Discover the provider with Mori, build its documented CLI, and provide its packaged SQL resources:
+
+```bash
+hinagata_root="$(mori path mori://shinzui/hinagata)"
+(cd "$hinagata_root" && nix develop -c cabal build hinagata)
+export HINAGATA_EXECUTABLE="$(cd "$hinagata_root" && nix develop -c cabal list-bin hinagata)"
+export hinagata_postgres_datadir="$hinagata_root/hinagata-postgres"
+nix develop -c bash -c 'export HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)"; bash scripts/check-scenario-isolation.sh'
+```
+
+The driver requires `initdb`, `pg_ctl`, `psql`, Hurl, Python, and both built executables; missing
+prerequisites fail clearly. It creates a private SCRAM-authenticated PostgreSQL cluster and invokes
+`hinagata --config CONFIG db acquire --json` twice for each execution mode. Each returned
+application connection goes only to its provider-owned service through explicit PG variables and
+a protected password file. `/health` readiness follows private `current_database()` and
+`current_user` checks. Both POSTs rendezvous after committing their different markers; a serial
+implementation cannot pass the barrier. GET observations and independent database queries require
+exactly one own marker in each database. POSTs are never retried.
+
+After workbench returns and execution PID checks confirm Hurl children stopped, the driver stops
+both services, then invokes `db release LEASE_ID --json` exactly once per acquired lease. It
+checks `inspect LEASE_ID --json` for `Released` and corroborates database absence through
+`pg_database`. A second-allocation failure (`db acquire --fixture absent --json`) never starts
+consumers and still releases the first lease. The driver also checks duplicate/incomplete
+handoffs, missing secret input, fail-fast, cancellation, and summary redaction. Every retry uses
+fresh leases and services; it never touches application databases or substitutes an in-memory
+service for a real database test.
+
+On 2026-11-12 UTC, the early two-lease check passed against provider commit
+`a0c1059743e5957e66e4b8cee9e485ad89471937` of `mori://shinzui/hinagata`. The complete driver
+also passed success, Hurl failure, cancellation, and partial acquisition cleanup. Normal CI uses
+`scripts/check-scenario-isolation-local.py` with two explicitly selected in-memory fixture servers,
+plus public CLI/core tests; it requires no developer database credentials and does not replace
+this real-provider evidence.

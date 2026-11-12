@@ -57,8 +57,10 @@ All `description` fields are `Optional Text` and default to `None Text`.
 - `Service`: `name`, `command`, `readiness` (`Http` or `Command`), `shutdownTimeoutSeconds`
   (default `10`), and description.
 - `RunReference`: `Workflow Text`, `Recipe Text`, or `Matrix Text`.
-- `Suite`: `name`, non-empty `runs`, optional `service`, `failFast` (default `False`), and
-  description.
+- `IsolationPolicy`: `SharedState` or `IndependentState`.
+- `Suite`: `name`, non-empty `runs`, optional `service`, `isolation` (default `SharedState`),
+  `failFast` (default `False`), and description. IndependentState cannot declare a managed service
+  and requires a verified runtime handoff at execution.
 
 ## Names, paths, and references
 
@@ -98,3 +100,8 @@ optional descriptive fields have defaults so adding compatible optional categori
 not break older manifests. `schemaVersion` remains explicit and unsupported versions are rejected
 before typed decoding. The repository tests an original-field-only completion fixture against an
 equivalent fully specified manifest.
+
+Missing suite isolation fields in schema-version-1 evaluated records and empty suite-list types
+are normalized to SharedState. Explicit invalid policies still fail typed decoding. Independent
+handoff bindings have their own conflict rules, documented in the
+[integration guide](../guides/integration-testing.md#independent-scenario-handoff).

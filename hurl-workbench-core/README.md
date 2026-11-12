@@ -3,6 +3,9 @@
 `hurl-workbench` composes complete Hurl entries into reusable workflows, supplies plain and secret
 parameters securely, and executes recipes, matrices, and integration suites through the official
 Hurl binary. Hurl remains responsible for HTTP, captures, assertions, cookies, retries, and reports.
+Suites default to shared application state: parallel runs require ReadOnly recipes, and shared
+writes require serial mutation opt-in. Independent suites consume verified caller-provisioned
+fixture/endpoint assignments through `--scenario-inputs`; see the [integration guide](docs/guides/integration-testing.md).
 
 ## Five-minute quick start
 

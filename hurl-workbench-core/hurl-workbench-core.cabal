@@ -62,6 +62,7 @@ library
     HurlWorkbench.Suite.Isolation
     HurlWorkbench.Suite.Resolve
     HurlWorkbench.Suite.Run
+    HurlWorkbench.Suite.Scenario
     HurlWorkbench.Workflow.Render
     HurlWorkbench.Workflow.Resolve
     HurlWorkbench.Workspace.Context
@@ -106,6 +107,7 @@ test-suite hurl-workbench-core-test
     HurlWorkbench.Run.SelectionTest
     HurlWorkbench.Service.RunTest
     HurlWorkbench.Suite.RunTest
+    HurlWorkbench.Suite.ScenarioTest
     HurlWorkbench.Workflow.WorkflowTest
     HurlWorkbench.Workspace.NameSafetyTest
     HurlWorkbench.Workspace.WorkspaceTest
@@ -114,6 +116,7 @@ test-suite hurl-workbench-core-test
     -threaded
 
   build-depends:
+    aeson >=2.2.5.1 && <2.3,
     async,
     base >=4.20 && <5,
     bytestring,

@@ -7,6 +7,13 @@ module HurlWorkbench.Suite.Resolve
     SuitePreflightIssue (..),
     SuitePreflightError (..),
     PreparedSuite (..),
+    SuiteMetadata (..),
+    ScenarioMetadata (..),
+    suiteMetadata,
+    reserveSuiteSummary,
+    suitePreflightReasonCode,
+    suitePreflightSetupFailure,
+    preflightScenarioInputs,
     prepareSuite,
     prepareSuiteWith,
     renderSuitePreflightIssue,
@@ -30,22 +37,27 @@ import HurlWorkbench.Run.Prepare
 import HurlWorkbench.Run.Selection
 import HurlWorkbench.Service.Resolve
 import HurlWorkbench.Suite.Isolation
+import HurlWorkbench.Suite.Scenario
 import HurlWorkbench.Workflow.Render (RenderedWorkflow)
 import HurlWorkbench.Workspace.Context
 import HurlWorkbench.Workspace.Types
 import System.Directory
-  ( createDirectory,
+  ( canonicalizePath,
+    createDirectory,
     createDirectoryIfMissing,
-    doesDirectoryExist,
     doesPathExist,
-    pathIsSymbolicLink,
     removePathForcibly,
   )
-import System.FilePath (splitDirectories, (</>))
+import System.FilePath (normalise, splitDirectories, (</>))
+import System.IO.Error (isDoesNotExistError)
+import System.Info (os)
 import System.Posix.Files
   ( accessModes,
     fileMode,
     getFileStatus,
+    getSymbolicLinkStatus,
+    isDirectory,
+    isSymbolicLink,
     ownerExecuteMode,
     ownerReadMode,
     ownerWriteMode,
@@ -70,6 +82,7 @@ data SuiteOptions = SuiteOptions
 
 data SuiteRequest = SuiteRequest
   { suiteName :: !SuiteName,
+    scenarioInputs :: !(Maybe ScenarioInputs),
     bindingInput :: !BindingInput,
     hurlOptions :: !HurlOptions,
     suiteOptions :: !SuiteOptions
@@ -79,6 +92,10 @@ data SuiteRequest = SuiteRequest
 data SuitePreflightIssue
   = SuiteNotFound !SuiteName
   | SuiteRunPreparationFailed !PreparationError
+  | SuiteDependencyUnavailable
+  | SuiteScenarioFailed !ScenarioIssue
+  | SuiteScenarioInputsUnexpected
+  | SuiteIndependentExternalRequired
   | SuiteIsolationFailed !IsolationIssue
   | SuiteUnsafeRun !Text !SafetyDisposition
   | SuiteDuplicateArtifactStem !FilePath
@@ -99,31 +116,86 @@ newtype SuitePreflightError = SuitePreflightError
   }
   deriving stock (Generic, Eq, Show)
 
-data PreparedSuite = PreparedSuite
+-- | Safe report data has no executable requests or provider/runtime values.
+data ScenarioMetadata = ScenarioMetadata
+  { name :: !Text,
+    scenario :: !FilePath,
+    reports :: ![FilePath]
+  }
+  deriving stock (Generic, Eq, Show)
+
+data SuiteMetadata = SuiteMetadata
   { name :: !SuiteName,
-    cases :: !(NonEmpty BatchCase),
-    batchOptions :: !BatchOptions,
-    managedService :: !(Maybe ResolvedService),
+    isolation :: !IsolationPolicy,
+    scenarios :: !(NonEmpty ScenarioMetadata),
     summaryPath :: !(Maybe FilePath)
   }
+  deriving stock (Generic, Eq, Show)
+
+data PreparedSuite = PreparedSuite
+  { metadata :: !SuiteMetadata,
+    cases :: !(NonEmpty BatchCase),
+    batchOptions :: !BatchOptions,
+    managedService :: !(Maybe ResolvedService)
+  }
   deriving stock (Generic, Show)
+
+suiteMetadata :: ValidatedWorkspace -> SuiteRequest -> Either SuitePreflightError SuiteMetadata
+suiteMetadata workspace request = do
+  suite <- maybe (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| []))) Right (lookupSuite (request ^. #suiteName) workspace)
+  expanded <- either (Left . SuitePreflightError . (:| []) . SuiteRunPreparationFailed . SelectionPreparationFailed) Right (traverse (resolveSelection workspace . runSelection) (suite ^. #runs))
+  runs <- maybe (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| []))) Right (nonEmpty (concatMap toList expanded))
+  pure
+    SuiteMetadata
+      { name = suite ^. #name,
+        isolation = suite ^. #isolation,
+        scenarios = fmap (\run -> ScenarioMetadata (run ^. #displayName) (run ^. #artifactStem) (map reportPath (suiteReportTargets (request ^. #suiteOptions . #reportFormats) (run ^. #artifactStem)))) runs,
+        summaryPath = fmap (\root -> root </> Text.unpack (unSuiteName (suite ^. #name)) </> "summary.json") (request ^. #suiteOptions . #reportDirectory)
+      }
+  where
+    reportPath = \case
+      JUnitReport path -> path
+      HtmlReport path -> path
+      JsonReport path -> path
+      TapReport path -> path
+
+-- | A refusal reserves only the suite directory, never fictitious Hurl reports.
+reserveSuiteSummary :: SuiteRequest -> SuiteMetadata -> IO (Either SuitePreflightIssue ())
+reserveSuiteSummary request metadata = case request ^. #suiteOptions . #reportDirectory of
+  Nothing -> pure (Right ())
+  Just root -> prepareReportLayout root (root </> Text.unpack (unSuiteName (metadata ^. #name))) [] (request ^. #suiteOptions . #overwriteReports)
 
 prepareSuite :: HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
 prepareSuite = prepareSuiteWith validateRenderedWorkflow
 
 prepareSuiteWith :: (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
-prepareSuiteWith validateRendered capabilities validated request =
+prepareSuiteWith validateRendered capabilities validated request = do
+  preflight <- preflightScenarioInputs validated request
+  case preflight of
+    Left err -> pure (Left err)
+    Right verified -> prepareVerifiedSuiteWith verified validateRendered capabilities validated request
+
+prepareVerifiedSuiteWith :: Maybe VerifiedScenarioInputs -> (HurlfmtCapabilities -> RenderedWorkflow -> IO (Either HurlfmtError ())) -> HurlfmtCapabilities -> ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError PreparedSuite)
+prepareVerifiedSuiteWith verified validateRendered capabilities validated request =
   case lookupSuite (request ^. #suiteName) validated of
     Nothing -> pure (Left (SuitePreflightError (SuiteNotFound (request ^. #suiteName) :| [])))
     Just _
-      | Just problems <- nonEmpty (checkSuiteIsolation validated (request ^. #suiteName) (request ^. #suiteOptions . #jobs)) ->
+      | Just problems <- nonEmpty (checkSuiteIsolationWith verified validated (request ^. #suiteName) (request ^. #suiteOptions . #jobs)) ->
           pure (Left (SuitePreflightError (fmap SuiteIsolationFailed problems)))
     Just suite -> do
-      selections <- traverse prepareReference (suite ^. #runs)
+      selections <- case verified of
+        Nothing -> traverse prepareReference (suite ^. #runs)
+        Just inputs -> case traverse (resolveSelection validated . runSelection) (suite ^. #runs) of
+          Left err -> pure [Left (SelectionPreparationFailed err :| [])]
+          Right expanded -> case nonEmpty (concatMap toList expanded) of
+            Nothing -> error "validated suite has no runs"
+            Just runs -> case traverse (\run -> (run,) <$> scenarioBindingInput inputs run) runs of
+              Nothing -> error "verified scenario assignment incomplete"
+              Just assigned -> pure <$> prepareExpandedForSuiteWith validateRendered capabilities validated (request ^. #hurlOptions) assigned
       serviceResult <- prepareManagedService suite
       let preparationIssues =
             concat
-              [ map SuiteRunPreparationFailed (NonEmpty.toList errors)
+              [ map preparationIssue (NonEmpty.toList errors)
               | Left errors <- selections
               ]
           preparedRuns = concat [NonEmpty.toList runs | Right runs <- selections]
@@ -149,22 +221,24 @@ prepareSuiteWith validateRendered capabilities validated request =
           (Just runs, Right service) ->
             prepareReports suite runs >>= \case
               Left problem -> pure (Left (SuitePreflightError (problem :| [])))
-              Right (batchCases, summary) ->
+              Right (batchCases, _summary) ->
                 pure
                   ( Right
                       PreparedSuite
-                        { name = suite ^. #name,
+                        { metadata = either (error "validated suite metadata failed") id (suiteMetadata validated request),
                           cases = batchCases,
                           batchOptions =
                             BatchOptions
                               (request ^. #suiteOptions . #jobs)
                               (fromMaybe (suite ^. #failFast) (request ^. #suiteOptions . #failFastOverride)),
-                          managedService = service,
-                          summaryPath = summary
+                          managedService = service
                         }
                   )
           _ -> error "prepareSuite: validated suite produced no prepared runs"
   where
+    preparationIssue RunBindingFailed {} | isJust verified = SuiteScenarioFailed ScenarioRuntimeInputFailed
+    preparationIssue err = SuiteRunPreparationFailed err
+
     prepareReference reference =
       prepareSelectionForSuiteWith
         validateRendered
@@ -211,6 +285,25 @@ prepareSuiteWith validateRendered capabilities validated request =
         prepared <- prepareReportLayout reportRoot suiteRoot runRoots (request ^. #suiteOptions . #overwriteReports)
         pure ((,Just summary) batchCases <$ prepared)
 
+-- | Public early boundary for core runners and CLI capability detection. Raw
+-- assignments are checked in full before any syntax probe or binding preparation.
+preflightScenarioInputs :: ValidatedWorkspace -> SuiteRequest -> IO (Either SuitePreflightError (Maybe VerifiedScenarioInputs))
+preflightScenarioInputs workspace request = case lookupSuite (request ^. #suiteName) workspace of
+  Nothing -> pure (failure (SuiteNotFound (request ^. #suiteName)))
+  Just suite -> case (suite ^. #isolation, request ^. #scenarioInputs) of
+    (SharedState, Just _) -> pure (failure SuiteScenarioInputsUnexpected)
+    (SharedState, Nothing) -> pure $ case nonEmpty (checkSuiteIsolation workspace (request ^. #suiteName) (request ^. #suiteOptions . #jobs)) of
+      Nothing -> Right Nothing
+      Just issues -> Left (SuitePreflightError (fmap SuiteIsolationFailed issues))
+    (IndependentState, Nothing) -> pure (failure (SuiteIsolationFailed IndependentStateHandoffRequired))
+    (IndependentState, Just inputs)
+      | request ^. #suiteOptions . #manageService -> pure (failure SuiteIndependentExternalRequired)
+      | otherwise -> case traverse (resolveSelection workspace . runSelection) (suite ^. #runs) of
+          Left err -> pure (failure (SuiteRunPreparationFailed (SelectionPreparationFailed err)))
+          Right expanded -> verifyScenarioInputs workspace (concatMap toList expanded) (request ^. #bindingInput) inputs <&> either (failure . SuiteScenarioFailed) (Right . Just)
+  where
+    failure issue = Left (SuitePreflightError (issue :| []))
+
 runSelection :: RunReference -> RunSelection
 runSelection = \case
   WorkflowRun name -> SelectWorkflow name
@@ -234,11 +327,10 @@ suiteReportTargets formats runRoot = map target (Set.toAscList formats)
 
 prepareReportLayout :: FilePath -> FilePath -> [FilePath] -> Bool -> IO (Either SuitePreflightIssue ())
 prepareReportLayout reportRoot suiteRoot runRoots overwrite
-  | null reportRoot || reportRoot == "." || reportRoot == ".." = pure (Left (SuiteInvalidReportDirectory reportRoot))
+  | null reportRoot || reportRoot == "." || reportRoot == ".." || normalise reportRoot == "/" = pure (Left (SuiteInvalidReportDirectory reportRoot))
   | otherwise = do
-      inspectedRoot <- inspectDirectory reportRoot
-      inspectedSuite <- inspectDirectory suiteRoot
-      case inspectedRoot <> inspectedSuite of
+      inspected <- concat <$> traverse inspectDirectory (filter (\path -> path /= "/" && path /= "") (drop 1 (scanl (</>) "" (splitDirectories (normalise suiteRoot)))))
+      case inspected of
         problem : _ -> pure (Left problem)
         [] -> do
           suiteExists <- doesPathExist suiteRoot
@@ -261,13 +353,18 @@ prepareReportLayout reportRoot suiteRoot runRoots overwrite
 
 inspectDirectory :: FilePath -> IO [SuitePreflightIssue]
 inspectDirectory path = do
-  exists <- doesPathExist path
-  if not exists
-    then pure []
-    else do
-      symbolic <- pathIsSymbolicLink path
-      directory <- if symbolic then pure False else doesDirectoryExist path
-      pure $ [SuiteReportPathIsSymbolicLink path | symbolic] <> [SuiteReportPathIsNotDirectory path | not symbolic && not directory]
+  inspected <- try @IOException (getSymbolicLinkStatus path)
+  case inspected of
+    Left err | isDoesNotExistError err -> pure []
+    Left _ -> pure [SuiteReportIoError path "could not inspect report path"]
+    Right status
+      | isSymbolicLink status -> do
+          -- macOS exposes these fixed OS-owned aliases for ordinary temporary
+          -- directories. User-controlled symlink ancestors remain forbidden.
+          canonical <- try @IOException (canonicalizePath path)
+          pure [SuiteReportPathIsSymbolicLink path | not (os == "darwin" && path `elem` ["/tmp", "/var"] && either (const False) (== ("/private" <> path)) canonical)]
+      | not (isDirectory status) -> pure [SuiteReportPathIsNotDirectory path]
+      | otherwise -> pure []
 
 ensureOwnerDirectory :: FilePath -> IO ()
 ensureOwnerDirectory path = createDirectoryIfMissing True path >> secureDirectory path
@@ -305,6 +402,10 @@ renderSuitePreflightError = Text.intercalate "\n" . map renderSuitePreflightIssu
 
 renderSuitePreflightIssue :: SuitePreflightIssue -> Text
 renderSuitePreflightIssue = \case
+  SuiteDependencyUnavailable -> "suite-dependency-unavailable"
+  SuiteScenarioFailed issue -> renderScenarioIssue issue
+  SuiteScenarioInputsUnexpected -> "scenario-inputs-unexpected: shared-state suites reject scenario inputs"
+  SuiteIndependentExternalRequired -> "independent-state-external-required: use --external-service"
   SuiteIsolationFailed issue -> renderIsolationIssue issue
   SuiteNotFound name -> "unknown suite " <> quote (unSuiteName name)
   SuiteRunPreparationFailed err -> renderPreparationError err
@@ -327,3 +428,37 @@ renderSuitePreflightIssue = \case
       Classified ReadOnly -> "read-only recipe"
       UnclassifiedWorkflow -> "unclassified workflow"
     quote value = "\"" <> value <> "\""
+
+-- | Stable codes are the only diagnostic content serialized into summaries.
+suitePreflightReasonCode :: SuitePreflightIssue -> Text
+suitePreflightReasonCode = \case
+  SuiteIsolationFailed (SharedStateParallelUnsafe _ _) -> "shared-state-parallel-unsafe"
+  SuiteIsolationFailed IndependentStateHandoffRequired -> "independent-state-handoff-required"
+  SuiteScenarioFailed issue -> renderScenarioIssue issue
+  SuiteScenarioInputsUnexpected -> "scenario-inputs-unexpected"
+  SuiteIndependentExternalRequired -> "independent-state-external-required"
+  SuiteDependencyUnavailable -> "suite-dependency-unavailable"
+  SuiteNotFound _ -> "suite-not-found"
+  SuiteRunPreparationFailed RunBindingFailed {} -> "suite-binding-failed"
+  SuiteRunPreparationFailed _ -> "suite-preparation-failed"
+  SuiteUnsafeRun _ _ -> "mutation-authorization-required"
+  SuiteDuplicateArtifactStem _ -> "suite-duplicate-scenario"
+  SuiteSharedCurlExport _ -> "suite-shared-curl-export"
+  SuiteReportDirectoryRequired -> "suite-report-directory-required"
+  SuiteInvalidReportDirectory _ -> "suite-invalid-report-directory"
+  SuiteReportPathExists _ -> "suite-report-path-exists"
+  SuiteReportPathIsSymbolicLink _ -> "suite-report-path-symlink"
+  SuiteReportPathIsNotDirectory _ -> "suite-report-path-not-directory"
+  SuiteReportIoError _ _ -> "suite-report-io-error"
+  SuiteServiceNotFound _ -> "suite-service-not-found"
+  SuiteServiceBindingFailed _ -> "suite-service-binding-failed"
+  SuiteServiceResolutionFailed _ -> "suite-service-resolution-failed"
+
+suitePreflightSetupFailure :: SuitePreflightIssue -> Bool
+suitePreflightSetupFailure = \case
+  SuiteDependencyUnavailable -> True
+  SuiteScenarioFailed ScenarioFileUnreadable -> True
+  SuiteScenarioFailed ScenarioRuntimeInputFailed -> True
+  SuiteRunPreparationFailed RunBindingFailed {} -> True
+  SuiteServiceBindingFailed _ -> True
+  _ -> False

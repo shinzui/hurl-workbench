@@ -90,6 +90,7 @@ in  Schema.Workspace::{
     , suites =
       [ Schema.Suite::{
         , name = "default"
+        , isolation = Schema.IsolationPolicy.SharedState
         , runs =
           [ Schema.RunReference.Recipe "health"
           , Schema.RunReference.Recipe "read-echo"
@@ -99,6 +100,7 @@ in  Schema.Workspace::{
         }
       , Schema.Suite::{
         , name = "writes"
+        , isolation = Schema.IsolationPolicy.SharedState
         , runs = [ Schema.RunReference.Recipe "create" ]
         , service = Some "fixture-api"
         , failFast = True

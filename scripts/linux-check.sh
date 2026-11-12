@@ -32,4 +32,4 @@ container run --rm --cpus 4 --memory 8G \
   --env NIX_CONFIG=$'experimental-features = nix-command flakes\naccept-flake-config = true' \
   --volume "$repo_root:/workspace" --workdir /workspace \
   ghcr.io/nixos/nix:2.35.2 \
-  nix develop --accept-flake-config -c just check
+  nix develop .#check --accept-flake-config -c just check

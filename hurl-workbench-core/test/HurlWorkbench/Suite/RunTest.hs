@@ -1,6 +1,10 @@
 module HurlWorkbench.Suite.RunTest (tests) where
 
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
+import Control.Concurrent.Async (AsyncCancelled (..), cancel, waitCatch, withAsync)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTVar, readTVarIO, takeTMVar)
+import Control.Exception (bracket_, fromException)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as ByteString
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
@@ -16,12 +20,13 @@ import HurlWorkbench.Run.Batch
 import HurlWorkbench.Suite.Isolation
 import HurlWorkbench.Suite.Resolve
 import HurlWorkbench.Suite.Run
+import HurlWorkbench.Suite.Scenario (ScenarioInputs (..))
 import HurlWorkbench.Workspace.Context
 import HurlWorkbench.Workspace.Discover (WorkspaceSource (..))
 import HurlWorkbench.Workspace.Error (renderWorkspaceError)
 import HurlWorkbench.Workspace.Types
 import HurlWorkbench.Workspace.Validate
-import System.Directory (createDirectoryIfMissing, doesPathExist)
+import System.Directory (createDirectoryIfMissing, createDirectoryLink, doesPathExist)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -34,7 +39,7 @@ tests =
     "integration suites"
     [ testCase "parallel unsafe suites are refused before syntax, binding IO, service, or Hurl" $ do
         workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
-        let request name allowed manage = SuiteRequest (SuiteName name) emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing allowed manage Set.empty Nothing False)
+        let request name allowed manage = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing allowed manage Set.empty Nothing False)
             forbidden _ _ = assertFailure "syntax validator called"
             runner = HurlRunner (const (assertFailure "Hurl started"))
         for_ [False, True] $ \allowed -> for_ [False, True] $ \manage -> do
@@ -49,12 +54,16 @@ tests =
           runSuiteWith forbidden runner trueCapabilities workspace (request "independent" True False & #suiteOptions . #jobs .~ positive jobs) >>= \case
             Left err -> toList (err ^. #issues) @?= [SuiteIsolationFailed IndependentStateHandoffRequired]
             Right _ -> assertFailure "bare independent declaration started"
+        for_ [("reads", False, SuiteScenarioInputsUnexpected), ("independent", True, SuiteIndependentExternalRequired)] $ \(name, manage, issue) ->
+          runSuiteWith forbidden runner trueCapabilities workspace (request name True manage & #scenarioInputs .~ Just (ScenarioInputs [])) >>= \case
+            Left err -> toList (err ^. #issues) @?= [issue]
+            Right _ -> assertFailure "invalid isolation mode accepted"
         for_ ["service-started", "readiness-started"] $ \marker ->
           doesPathExist ("test/fixtures/workspaces/isolation" </> marker) >>= (@?= False),
       testCase "parallel reads and serial authorized mutations remain supported" $ do
         workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
         requests <- newTVarIO []
-        let request name jobs allowed = SuiteRequest (SuiteName name) (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") (literal "http://fixture.test")}) defaultHurlOptions (SuiteOptions (positive jobs) Nothing allowed False Set.empty Nothing False)
+        let request name jobs allowed = SuiteRequest (SuiteName name) Nothing (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") (literal "http://fixture.test")}) defaultHurlOptions (SuiteOptions (positive jobs) Nothing allowed False Set.empty Nothing False)
         readResult <- runSuite (recordingRunner requests) trueCapabilities workspace (request "reads" 2 False) >>= requireSuite
         readResult ^. #selectedExitCode @?= ExitSuccess
         length <$> readTVarIO requests >>= (@?= 3)
@@ -63,13 +72,105 @@ tests =
         runSuite (recordingRunner requests) trueCapabilities workspace (request "single-write" 1 False) >>= \case
           Left err -> assertBool "serial still requires opt-in" (any isUnsafe (err ^. #issues))
           Right _ -> assertFailure "unauthorized mutation started",
+      testCase "refusal and setup summaries contain logical cases and stable codes only" $
+        withSystemTempDirectory "suite-preflight-summary" $ \directory -> do
+          workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
+          let runner = HurlRunner (const (assertFailure "preflight started Hurl"))
+              request name root = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing True False Set.empty (Just root) False)
+          for_ [("mixed", "refused"), ("reads", "setup-failed")] $ \(name, status) -> do
+            let root = directory </> name
+            runSuiteWith (\_ _ -> pure (Right ())) runner trueCapabilities workspace (request (Text.pack name) root) >>= \case
+              Left _ -> pure ()
+              Right _ -> assertFailure "preflight unexpectedly succeeded"
+            summary <- readJson (root </> name </> "summary.json")
+            field "status" summary @?= Aeson.String status
+            field "isolation" summary @?= Aeson.String "shared-state"
+            let cases = arrayValues (field "cases" summary)
+            assertBool "logical cases present" (not (null cases))
+            for_ cases $ \logical -> do
+              field "status" logical @?= Aeson.String "not-started"
+              field "reports" logical @?= Aeson.toJSON ([] :: [Text])
+              field "exitCode" logical @?= Aeson.Null
+              assertBool "scenario is explicit" (field "scenario" logical /= Aeson.Null),
+      testCase "unsafe report destinations and unknown suites preserve existing trees" $
+        withSystemTempDirectory "suite-refusal-destination" $ \directory -> do
+          workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
+          let outsideDirectory = directory </> "outside"
+              link = directory </> "link"
+              request name root = SuiteRequest (SuiteName name) Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 2) Nothing True False Set.empty (Just root) True)
+              runner = HurlRunner (const (assertFailure "unexpected execution"))
+          createDirectoryIfMissing True outsideDirectory
+          ByteString.writeFile (outsideDirectory </> "sentinel") "preserve"
+          createDirectoryLink outsideDirectory link
+          result <- runSuiteWith (\_ _ -> assertFailure "unexpected format") runner trueCapabilities workspace (request "mixed" (link </> "nested"))
+          case result of
+            Left err -> assertBool "symlink ancestor rejected" (any (\case SuiteReportPathIsSymbolicLink _ -> True; _ -> False) (err ^. #issues))
+            Right _ -> assertFailure "unsafe destination accepted"
+          doesPathExist (outsideDirectory </> "nested") >>= (@?= False)
+          _ <- runSuite runner trueCapabilities workspace (request "unknown" outsideDirectory)
+          ByteString.readFile (outsideDirectory </> "sentinel") >>= (@?= "preserve")
+          doesPathExist (outsideDirectory </> "unknown") >>= (@?= False),
+      testCase "cancellation retains completed outcomes, joins workers, and propagates even if summary writing fails" $
+        for_ [False, True] $ \breakSummary -> withSystemTempDirectory "suite-cancel-summary" $ \directory -> do
+          workspace <- loadValidated "test/fixtures/workspaces/isolation/hurl-workbench.dhall"
+          started <- newEmptyTMVarIO
+          blocked <- newEmptyTMVarIO
+          starts <- newTVarIO (0 :: Int)
+          active <- newTVarIO (0 :: Int)
+          let summaryPath = directory </> "reads" </> "summary.json"
+              literal_ = literal "private-plain-sentinel"
+              request = SuiteRequest (SuiteName "reads") Nothing (emptyBindingInput {plainOverrides = Map.singleton (ParameterName "baseUrl") literal_}) defaultHurlOptions (SuiteOptions (positive 1) Nothing False False Set.empty (Just directory) False)
+              runner = HurlRunner $ \_ -> do
+                ordinal <- atomically $ do
+                  modifyTVar' starts (+ 1)
+                  count <- readTVar starts
+                  pure count
+                if ordinal == 1
+                  then pure (Right (RunResult ExitSuccess 0.01 (Just (CapturedRunOutput "private-captured-sentinel" "private-secret-sentinel"))))
+                  else bracket_
+                    (atomically (modifyTVar' active (+ 1)))
+                    (atomically (modifyTVar' active (subtract 1)))
+                    $ do
+                      when breakSummary (createDirectoryIfMissing True summaryPath)
+                      atomically (putTMVar started ())
+                      _ <- atomically (takeTMVar blocked)
+                      assertFailure "cancelled run resumed"
+          withAsync (runSuiteWith (\_ _ -> pure (Right ())) runner trueCapabilities workspace request) $ \worker -> do
+            atomically (takeTMVar started)
+            cancel worker
+            waitCatch worker >>= \case
+              Left err -> (fromException err :: Maybe AsyncCancelled) @?= Just AsyncCancelled
+              Right _ -> assertFailure "cancellation returned a SuiteResult"
+          readTVarIO active >>= (@?= 0)
+          readTVarIO starts >>= (@?= 2)
+          unless breakSummary $ do
+            raw <- ByteString.readFile summaryPath
+            for_ ["private-plain-sentinel", "private-captured-sentinel", "private-secret-sentinel"] $ \sentinel -> assertBool "summary redacted" (not (sentinel `ByteString.isInfixOf` raw))
+            summary <- readJson summaryPath
+            field "status" summary @?= Aeson.String "cancelled"
+            let cases = arrayValues (field "cases" summary)
+            map (field "scenario") cases @?= map Aeson.String ["health-cases/first", "health-cases/second", "health-cases/third"]
+            map (field "status") cases @?= map Aeson.String ["passed", "cancelled", "cancelled"],
+      testCase "summary failure preserves a managed-service failure status" $
+        withSystemTempDirectory "suite-service-summary-failure" $ \directory -> do
+          original <- failureWorkspace
+          let summaryPath = directory </> "failure" </> "summary.json"
+              context = validatedContext original
+              sabotage service = service & #command . #executable .~ "python3" & #command . #arguments .~ ["-c", "import os, sys; os.mkdir(sys.argv[1]); raise SystemExit(9)", Text.pack summaryPath]
+          workspace <- validateWorkspace (context & #workspace . #services %~ map sabotage) >>= either (assertFailure . show) pure
+          requests <- newTVarIO []
+          let request = SuiteRequest (SuiteName "failure") Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty (Just directory) False)
+          result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
+          result ^. #selectedExitCode @?= ExitFailure 4
+          assertBool "summary failure retained" (isJust (result ^. #summaryError))
+          readTVarIO requests >>= (@?= []),
       testCase "missing managed environment skips Hurl; external service bypasses policy" $ do
         original <- failureWorkspace
         let context = validatedContext original
             services = map (\service -> service & #command . #environmentPolicy .~ Clean ["HURL_WORKBENCH_TEST_ABSENT_972638"]) (validatedWorkspace original ^. #services)
         workspace <- validateWorkspace (context & #workspace . #services .~ services) >>= either (assertFailure . show) pure
         requests <- newTVarIO []
-        let request = SuiteRequest (SuiteName "failure") emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty Nothing False)
+        let request = SuiteRequest (SuiteName "failure") Nothing emptyBindingInput defaultHurlOptions (SuiteOptions (positive 1) Nothing False True Set.empty Nothing False)
         result <- runSuite (recordingRunner requests) trueCapabilities workspace request >>= requireSuite
         result ^. #selectedExitCode @?= ExitFailure 4
         readTVarIO requests >>= (@?= [])
@@ -121,6 +222,7 @@ tests =
         let request =
               SuiteRequest
                 { suiteName = SuiteName "failure",
+                  scenarioInputs = Nothing,
                   bindingInput = emptyBindingInput,
                   hurlOptions = defaultHurlOptions,
                   suiteOptions = SuiteOptions (positive 1) Nothing False True Set.empty Nothing False
@@ -138,6 +240,7 @@ fullSuiteRequest :: FilePath -> Bool -> Bool -> Set ReportFormat -> Maybe FilePa
 fullSuiteRequest directory allowMutating manageService reportFormats reportDirectory overwriteReports =
   SuiteRequest
     { suiteName = SuiteName "smoke",
+      scenarioInputs = Nothing,
       bindingInput =
         emptyBindingInput
           { plainOverrides = Map.singleton (ParameterName "client_id") (literal "suite-client"),
@@ -219,3 +322,14 @@ loadValidated path = do
   loaded <- loadWorkspaceContext (ExplicitWorkspace path)
   context <- either (assertFailure . Text.unpack . renderWorkspaceError) pure loaded
   validateWorkspace context >>= either (assertFailure . Text.unpack . Text.unlines . map renderValidationIssue . toList) pure
+
+readJson :: FilePath -> IO Aeson.Value
+readJson path = ByteString.readFile path >>= either assertFailure pure . Aeson.eitherDecodeStrict
+
+field :: Aeson.Key -> Aeson.Value -> Aeson.Value
+field key (Aeson.Object object) = fromMaybe Aeson.Null (KeyMap.lookup key object)
+field _ _ = Aeson.Null
+
+arrayValues :: Aeson.Value -> [Aeson.Value]
+arrayValues (Aeson.Array values) = toList values
+arrayValues _ = []

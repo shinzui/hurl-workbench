@@ -1,7 +1,7 @@
 module HurlWorkbench.Run.SelectionTest (tests) where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
+import Control.Concurrent.STM (atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTVar, readTVarIO, takeTMVar, writeTVar)
 import Control.Exception (bracket)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as ByteString
@@ -142,12 +142,18 @@ tests =
       testCase "fail-fast stops queue scheduling and marks untouched cases skipped" $ do
         cases <- syntheticCases ["first", "active", "third", "fourth", "fifth"]
         starts <- newTVarIO (0 :: Int)
+        activeStarted <- newEmptyTMVarIO
+        failurePublished <- newEmptyTMVarIO
         let runner = HurlRunner $ \request -> do
               atomically (modifyTVar' starts (+ 1))
               if requestPath request == Just "first"
-                then threadDelay 20000 >> pure (Right (RunResult (ExitFailure 7) 0 Nothing))
-                else threadDelay 120000 >> pure (Right (RunResult ExitSuccess 0 Nothing))
-        result <- runBatch runner (BatchOptions (positive 2) True) cases
+                then atomically (takeTMVar activeStarted) >> pure (Right (RunResult (ExitFailure 7) 0 Nothing))
+                else do
+                  atomically (putTMVar activeStarted ())
+                  atomically (takeTMVar failurePublished)
+                  pure (Right (RunResult ExitSuccess 0 Nothing))
+            observe caseIndex _ = when (caseIndex == 0) (atomically (putTMVar failurePublished ()))
+        result <- runBatchObserved runner (BatchOptions (positive 2) True) cases observe
         readTVarIO starts >>= (@?= 2)
         map (view #outcome) (toList (result ^. #cases))
           @?= [ CaseFailed (ExitFailure 7),

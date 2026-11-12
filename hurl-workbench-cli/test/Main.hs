@@ -8,6 +8,7 @@ import Data.Text.IO qualified as Text.IO
 import Data.Version (makeVersion)
 import FixtureServer qualified
 import HurlWorkbench.Cli (runCommandWithDependencies, runCommandWithHurlfmt)
+import HurlWorkbench.Cli.Command.Suite qualified as SuiteCommand
 import HurlWorkbench.Cli.Help (helpPreferences)
 import HurlWorkbench.Cli.Options
 import HurlWorkbench.Cli.Output (CommandResult (..))
@@ -32,6 +33,7 @@ import System.Directory (canonicalizePath, doesPathExist, getPermissions, setOwn
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -275,7 +277,7 @@ commandTests =
               ],
       testCase "list of an empty category says so" $ do
         result <- runTestCommand (GlobalOptions (Just (fixtureManifest "minimal"))) "." (ListCommand SuitesCategory)
-        result ^. #stdoutLines @?= ["(none)"],
+        result @?= CommandResult ["(none)"] [] ExitSuccess,
       testCase "render writes only composed Hurl source to stdout" $ do
         result <-
           runTestCommand
@@ -419,6 +421,36 @@ commandTests =
             result ^. #exitCode @?= ExitFailure 2
         for_ ["service-started", "readiness-started"] $ \marker ->
           doesPathExist (fixtureDir "isolation" </> marker) >>= (@?= False),
+      testCase "invalid private scenario files fail before capability probes" $
+        withSystemTempDirectory "scenario-cli" $ \directory -> do
+          let input = directory </> "inputs.json"
+              run = do
+                parsed <- successOf (parse ["test", "suite", "independent", "--external-service", "--scenario-inputs", input, "--report-dir", directory </> "reports", "--overwrite"])
+                runCommandWithDependencies (assertFailure "format probe called") (assertFailure "Hurl probe called") (\_ _ -> assertFailure "format called") (\_ _ -> assertFailure "syntax called") (GlobalOptions (Just (fixtureManifest "isolation"))) "." (parsed ^. #cmd)
+          missing <- run
+          missing ^. #exitCode @?= ExitFailure 3
+          ByteString.writeFile input "private-invalid-input"
+          setFileMode input 0o600
+          invalid <- run
+          invalid ^. #exitCode @?= ExitFailure 2
+          assertBool "raw input is redacted" (not (any (Text.isInfixOf "private-invalid-input") (invalid ^. #stderrLines))),
+      testCase "a verified handoff executes separate endpoints through the suite command" $
+        testWithApplication (pure FixtureServer.application) $ \firstPort ->
+          testWithApplication (pure FixtureServer.application) $ \secondPort ->
+            withSystemTempDirectory "scenario-live-cli" $ \directory -> do
+              let input = directory </> "inputs.json"
+                  entry name port = "{\"scenario\":\"writes/" <> name <> "\",\"fixtureId\":\"private-fixture-" <> name <> "\",\"endpoint\":\"http://127.0.0.1:" <> Text.pack (show port) <> "\",\"endpointParameter\":\"baseUrl\",\"bindings\":[],\"secretEnvironment\":[]}"
+              Text.IO.writeFile input ("{\"version\":1,\"scenarios\":[" <> entry "first" firstPort <> "," <> entry "second" secondPort <> "]}")
+              setFileMode input 0o600
+              parsed <- successOf (parse ["test", "suite", "independent", "--external-service", "--scenario-inputs", input, "--allow-mutating", "--jobs", "2", "--report-dir", directory </> "reports"])
+              case parsed ^. #cmd of
+                SuiteCommand options -> do
+                  result <- SuiteCommand.runSuiteCommand (GlobalOptions (Just (fixtureManifest "isolation"))) "." options
+                  result ^. #exitCode @?= ExitSuccess
+                  length (filter (Text.isPrefixOf "PASS") (result ^. #stderrLines)) @?= 2
+                  summary <- ByteString.readFile (directory </> "reports" </> "independent" </> "summary.json")
+                  assertBool "fixture identities are private" (not ("private-fixture" `ByteString.isInfixOf` summary))
+                _ -> assertFailure "expected suite command",
       testCase "read-only suites retain parallel execution" $
         withSystemTempDirectory "hurl-workbench-cli-read-suite" $ \dir -> do
           executable <- writeExitHurl dir 0
@@ -438,6 +470,7 @@ commandTests =
                     failFastOverride = Nothing,
                     allowMutating = allowed,
                     externalService = True,
+                    scenarioInputsFile = Nothing,
                     reportFormats = reports,
                     reportDirectory = if null reports then Nothing else Just reportRoot,
                     overwrite = False,

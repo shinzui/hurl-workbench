@@ -56,7 +56,9 @@ test no-op executables are resolved through `PATH` rather than a macOS-only abso
 
 The supported local Linux acceptance path on macOS is Apple `container`. `just linux-check`
 mounts the worktree into a disposable ARM64 Nix Linux container and runs the same `just check`
-gate. Because entering the Nix shell installs Git hooks, the wrapper saves and restores the host's
+gate through `devShells.check`. This shell uses the same pinned GHC/Cabal and required release
+tools with HLS disabled; editor-only dependencies do not participate in release validation. The
+default development shell retains HLS. Because entering the Nix shell installs Git hooks, the wrapper saves and restores the host's
 hooks around the mounted-container run. The GitHub Actions workflow remains a credential-free
 automation option, but its execution is not required when it is intentionally disabled and
 equivalent local Linux evidence is recorded.
@@ -75,6 +77,9 @@ The canonical check needs network access when it initializes or refreshes Cabal'
 The pinned index state keeps dependency selection stable even when the downloaded index contains
 newer releases. A disposable Linux check is slower than a persistent container because it starts
 with an empty Nix store, but it proves the clean-machine bootstrap and avoids host-cache coupling.
+Cabal's inplace registration cache is shared across architectures within one build directory.
+Concurrent macOS and Linux checks therefore need separate worktrees/build directories; a detached
+validation worktree with an identical tracked tree provides that isolation without a feature branch.
 
 The generated single-root assumption belongs to the `nix-haskell-flake` template in
 `mori://shinzui/seihou-modules`; artifact-level URI coverage for its template source is pending.

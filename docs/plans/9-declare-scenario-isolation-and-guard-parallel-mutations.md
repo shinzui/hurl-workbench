@@ -35,17 +35,23 @@ This implements [IR-5](../improvement-requests/declare-scenario-isolation-and-gu
 
 
 - [x] (2026-11-12) Milestone 1: Compatible isolation declarations and early core/CLI guards are implemented. Core tests (83) and CLI tests (35) pass, including frozen populated/empty old schemas, invalid policies, requested parallelism for a single unsafe run, ordered mixed-suite refusals, external mode, opt-in independence, zero capability/syntax hooks, and service/readiness start markers. `just sync-check schema-check` passes. Serial opted-in writes and parallel reads remain supported.
-- [ ] Milestone 2: A validated per-scenario runtime handoff enables bounded independent execution; duplicate or incomplete assignments start no Hurl executions, and an early real lease handoff proves the provider boundary.
-- [ ] Milestone 3: Success, refusal, setup failure, and cancellation produce safe isolation summaries without weakening cleanup, fail-fast, or declaration ordering.
-- [ ] Milestone 4: Public examples, real concurrent database scenarios, documentation, and package validation satisfy every IR-5 acceptance criterion.
+- [x] (2026-11-12) Milestone 2: Private version-1 handoffs, full assignment/origin/channel/conflict validation, and cached per-expanded-run preparation are implemented. Core/CLI tests and the public local two-server driver pass. The early real Hinagata two-lease invocation passed concurrent independent writes, direct database corroboration, duplicate/incomplete refusal, and release inspection before report variants were expanded.
+- [x] (2026-11-12) Milestone 3: Safe metadata is separate from executable requests. Parsed success/refusal/setup/cancellation summaries identify policy and scenarios without runtime sentinels. Deterministic cancellation/fail-fast tests retain ordered completed results, join workers, preserve service exit 4 on summary failure, and rethrow cancellation even on write failure. Core (91) and CLI (37) tests pass on macOS.
+- [x] (2026-11-12) Milestone 4: Shared/independent examples, documentation, ADRs 1/5/7/8, schema/release copies, and the complete real-provider driver are verified. The full macOS and local ARM64 Apple-container Linux `just check` gates each pass all 91 core and 37 CLI tests, examples, compatibility, formatting, distribution builds, and Nix checks. The public independent manifest also validates. Both gates used the same tracked source tree (`81afcb9668a2054c4796514601070aac78f7c24a`); macOS ran in an isolated detached validation worktree.
 
-Implementation checkpoint (2026-11-12): milestone 1 is implemented and the full macOS `nix develop -c just check` gate passes. Milestones 2–4 remain open. The registry failure was a stale inherited Mori connection string; the command-local endpoint override documented by completed plan 8 restores discovery. FRIC-4 is resolved. Hinagata, Dhall, Aeson, and http-client registry discovery now succeeds. The first Apple-container gate was stopped while realizing the development shell so implementation can continue against a stable final candidate later. Suite.Isolation currently fails closed for every IndependentState declaration, including jobs 1; the scenario-inputs option and runtime handoff are next. Refusal/setup/cancellation summaries remain milestone 3 work. This plan is standalone, with no parent MasterPlan.
+Completion (2026-11-12): all four milestones and IR-5 AC-1 through AC-5 are satisfied. The full real-provider driver passes success, Hurl failure/fail-fast, cancellation, and partial allocation failure, checking Hurl shutdown before services stop and exactly one release per acquired lease with Released inspections and database absence. Final macOS and local Apple-container ARM64 Linux release gates both exit zero with `all checks: PASS`; both run 91 core and 37 CLI tests. The tracked source tree is identical across those platform checks. [FRIC-4](../friction-log/4-mori-registry-unavailable-through-postgresql-tunnel.md) and [FRIC-5](../friction-log/5-linux-release-gate-realizes-editor-only-hls-dependencies.md) are resolved and strict friction validation passes. No dependency pins or runtime bounds changed. This plan is standalone, with no parent MasterPlan.
 
 
 ## Surprises & Discoveries
 
 
-2026-11-12: plan 8 has landed. Its in-tree command-policy compatibility pass already supplies the exact Dhall expression traversal needed for suite records and empty-list annotations; suite normalization extends that approach without changing dependency versions or introducing new external APIs. Mori source discovery initially failed (FRIC-4), then succeeded with a command-local override from the current shell profile, following the completed plan 8 recovery note. No service restart was needed.
+2026-11-12: plan 8 has landed. Its in-tree command-policy compatibility pass already supplies the exact Dhall expression traversal needed for suite records and empty-list annotations; suite normalization extends that approach without changing dependency versions or introducing new external APIs. Mori source discovery initially failed ([FRIC-4](../friction-log/4-mori-registry-unavailable-through-postgresql-tunnel.md)), then succeeded with a command-local override from the current shell profile, following the completed plan 8 recovery note. No service restart was needed.
+
+2026-11-12: macOS exposes `/tmp` and `/var` as OS-owned aliases to `/private`. Rejecting every ancestor symlink also rejected ordinary provider temporary paths. Report checks now permit only these fixed standard destinations on macOS, while rejecting user-controlled ancestor symlinks.
+
+2026-11-12: a real Hurl failure can finish and be observed while SIGINT is delivered. A cancelled summary retains that completed failure alongside unfinished cancelled cases. The real driver checks those truthful outcomes; deterministic core barriers separately prove completed success retention and queued unfinished cases.
+
+2026-11-12: the default editor shell again built unrelated HLS dependencies before Linux release checks ([FRIC-5](../friction-log/5-linux-release-gate-realizes-editor-only-hls-dependencies.md)). A dedicated check shell preserves the pinned compiler and complete gate while excluding HLS; no dependency pins or runtime bounds changed.
 
 
 ## Decision Log
@@ -63,6 +69,14 @@ Implementation checkpoint (2026-11-12): milestone 1 is implemented and the full 
 ## Outcomes & Retrospective
 
 
+All five IR-5 criteria are verified. Old populated and empty suite shapes decode with SharedState; unsafe requested parallelism fails before probes or children; verified independent inputs isolate actual concurrent writes across two real leased databases; existing authorization, bounded scheduling, fail-fast, report isolation, exit selection, and process cleanup remain intact; parsed success/refusal/setup/cancellation summaries expose only logical isolation metadata.
+
+The early producer/consumer check validated the proposed handoff without a contract change before report variants were expanded. The real provider fixture checks both database identity and own-marker-only observations, then independently verifies release. Normal core/CLI/local tests require no real database credentials. Public shared and independent examples and the versioned JSON contract are documented; provider ownership and the trusted-identity boundary are explicit. ADRs 1, 5, 7, and 8 retain the compatible schema, state-versus-session distinction, verified preparation and reporting boundary, cancellation publication, and the release check shell. ADR 6's managed process ownership remains unchanged.
+
+[FRIC-4](../friction-log/4-mori-registry-unavailable-through-postgresql-tunnel.md) in docs/friction-log/ is resolved: the current shell-profile endpoint restores Mori discovery through a command-local override. [FRIC-5](../friction-log/5-linux-release-gate-realizes-editor-only-hls-dependencies.md) in docs/friction-log/ is resolved: the dedicated check shell removes editor-only HLS from Linux release validation while retaining the same pinned compiler and complete gate. Both entries were triaged through the bundled script; no entries remain logged for this plan.
+
+An initial Linux empty-category assertion failed without showing stderr; the assertion now compares the complete CommandResult. The steady-candidate Linux gate passes that case and all remaining checks. No runtime cause was established, and no decoding fallback was added. macOS validation used a temporary detached worktree to avoid sharing Cabal's inplace registration cache with Linux. Future cross-platform checks should keep build directories separate when run concurrently.
+
 
 ## Context and Orientation
 
@@ -71,9 +85,9 @@ A workspace is a Dhall manifest decoded into Haskell values and validated before
 
 `schema/Suite.dhall` defines name, runs, optional service, isolation (default SharedState), failFast, and description. `schema/package.dhall` exports the schema. `hurl-workbench-core/src/HurlWorkbench/Workspace/Types.hs` defines the corresponding Suite and generic decoder; `hurl-workbench-core/src/HurlWorkbench/Workspace/Decode.hs` evaluates, version-checks, and type-checks the full workspace. `hurl-workbench-core/src/HurlWorkbench/Workspace/Validate.hs` validates suite references. Schema copies in `hurl-workbench-core/schema/` and `hurl-workbench-cli/schema/` must match the root.
 
-`hurl-workbench-core/src/HurlWorkbench/Run/Selection.hs` produces ExpandedRun with Classified ReadOnly, Classified Mutating, or UnclassifiedWorkflow safety. Direct workflows are always unclassified; Hurl source is deliberately opaque. `hurl-workbench-core/src/HurlWorkbench/Run/Prepare.hs` renders, checks syntax, and resolves bindings into PreparedRun. It currently accepts one BindingInput for a whole selection. Independent matrix cases therefore require a new preparation path operating on individual expanded runs with individual runtime inputs.
+`hurl-workbench-core/src/HurlWorkbench/Run/Selection.hs` produces ExpandedRun with Classified ReadOnly, Classified Mutating, or UnclassifiedWorkflow safety. Direct workflows are always unclassified; Hurl source is deliberately opaque. `hurl-workbench-core/src/HurlWorkbench/Run/Prepare.hs` renders, checks syntax, and resolves bindings into PreparedRun. It retains the common selection API and adds prepareExpandedForSuiteWith for individual expanded runs and runtime inputs, sharing one rendered-workflow cache.
 
-`hurl-workbench-core/src/HurlWorkbench/Suite/Isolation.hs` provides the pure early isolation guard, shared by the core suite path and CLI suite/matrix commands. `hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` applies this guard before run preparation, checks serial mutation permission after run preparation, prepares report directories, and returns PreparedSuite with one optional ResolvedService. `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` runs the batch inside that service's lifetime and writes summary.json. Preflight errors return before summary creation, and asynchronous cancellation currently escapes before a final summary; both need explicit handling for IR-5.
+`hurl-workbench-core/src/HurlWorkbench/Suite/Isolation.hs` provides the pure early isolation guard, shared by the core suite path and CLI suite/matrix commands. `hurl-workbench-core/src/HurlWorkbench/Suite/Resolve.hs` verifies scenario inputs and applies this guard before run preparation, checks mutation permission, prepares report directories, and returns executable PreparedSuite requests alongside separate safe SuiteMetadata, with one optional ResolvedService for shared state. `hurl-workbench-core/src/HurlWorkbench/Suite/Run.hs` runs the batch inside that service's lifetime and writes summary.json. Safely reportable preflight errors now reserve only the suite root for a refusal/setup summary. Cancellation retains observed completed cases, joins child cleanup, writes a best-effort cancelled summary, and rethrows the original interruption.
 
 `hurl-workbench-core/src/HurlWorkbench/Run/Batch.hs` uses a fixed worker count and a queue. Active cases finish after fail-fast; queued cases become skipped. Observers retain completed results if a service failure interrupts execution. This bounds Hurl concurrency and keeps declaration-ordered results, but does not establish independent server state. `hurl-workbench-core/src/HurlWorkbench/Service/Run.hs` owns only managed service process groups. `hurl-workbench-core/src/HurlWorkbench/Hurl/Run.hs` owns Hurl children and temporary secure binding files.
 
@@ -148,7 +162,7 @@ Run the repository release gate and local Apple-container Linux check. The norma
 ## Concrete Steps
 
 
-Run from the repository root, `/Users/shinzui/Keikaku/bokuno/hurl-workbench` in the authoring environment. These are planned implementation checks, not tests already run during creation:
+Run from the repository root, `/Users/shinzui/Keikaku/bokuno/hurl-workbench` in the authoring environment. Reproduction commands follow; Progress records the actual acceptance evidence:
 
 ```bash
 nix develop -c cabal test hurl-workbench-core-test --test-show-details=direct
@@ -202,7 +216,31 @@ mori registry search aeson
 mori registry search http-client
 ```
 
-Use returned qualified project names for show/docs and read the located source files. During plan creation the first two relevant registry commands failed with a local PostgreSQL connection refusal. Resolve that service availability before dependent source research; do not search the Nix store or invent provider commands. If dependency versions must change, verify the current authoritative package registry and upstream release tags before choosing bounds. No dependency upgrade is required by this plan's design.
+Use returned qualified project names for show/docs and read the located source files. Registry discovery initially failed because the inherited endpoint was stale; a command-local override from the current shell profile restored list/search/show/docs. Sources for Dhall expression traversal, Aeson object decoding, http-client origin parsing, async cancellation/publication, and the toolchain check-shell API were inspected through Mori-located checkouts. No dependency upgrade or pin change was needed; test Aeson uses the existing project bound.
+
+The actual provider at `mori://shinzui/hinagata` commit `a0c1059743e5957e66e4b8cee9e485ad89471937` exposes `db acquire --json`, `db release LEASE_ID --json`, and `inspect LEASE_ID --json`. The driver creates its own SCRAM-authenticated cluster, acquires two detached caller-owned leases per execution mode, passes their application PG variables and a private PGPASSFILE only to its own services, checks `/health` after private `current_database()`/`current_user` assertions, and calls one suite invocation. Reproduce from the repository root after building workbench and the discovered provider:
+
+```bash
+hinagata_root="$(mori path mori://shinzui/hinagata)"
+(cd "$hinagata_root" && nix develop -c cabal build hinagata)
+export HINAGATA_EXECUTABLE="$(cd "$hinagata_root" && nix develop -c cabal list-bin hinagata)"
+export hinagata_postgres_datadir="$hinagata_root/hinagata-postgres"
+nix develop .#check -c bash -c 'export HURL_WORKBENCH_EXECUTABLE="$(cabal list-bin hurl-workbench)"; bash scripts/check-scenario-isolation.sh'
+```
+
+The early `--early` run proved the real two-lease boundary before summary variants. The final complete run passed:
+
+```text
+duplicate assignments refused: PASS
+independent writes: PASS
+provider cleanup (success): PASS
+provider cleanup (failure): PASS
+provider cleanup (cancellation): PASS
+partial allocation refused before consumers: PASS
+provider cleanup (allocation-failure): PASS
+```
+
+Success requires both POSTs to commit and reach a rendezvous before either responds, then each GET and a direct database query sees only its own marker. The failure run uses jobs 1 and fail-fast and proves the queued second POST never starts. Cancellation waits for both active POSTs, signals workbench, checks its shell-equivalent status 130 and a cancelled summary, then proves all recorded Hurl PIDs are gone while provider services remain alive. Only then does the driver stop services, release every acquired lease once, inspect Released, and verify clone absence through pg_database. The partial-allocation variant fails the second `db acquire --fixture absent --json` before any consumer starts and releases the first lease. Normal tests/local acceptance use explicit in-memory fixtures and do not substitute for this real database evidence.
 
 
 ## Validation and Acceptance
@@ -232,7 +270,7 @@ Mina successfully created `intention_01m76636k9enysm8fxs71dah6z`; do not create 
 ## Interfaces and Dependencies
 
 
-The workspace field is `Suite.isolation :: IsolationPolicy`, with Haskell constructors SharedState and IndependentState and Dhall spelling `Schema.IsolationPolicy.SharedState` or `Schema.IsolationPolicy.IndependentState`. The runtime file is separate from Dhall and has a versioned JSON envelope. This is the proposed version-1 shape, using harmless example values:
+The workspace field is `Suite.isolation :: IsolationPolicy`, with Haskell constructors SharedState and IndependentState and Dhall spelling `Schema.IsolationPolicy.SharedState` or `Schema.IsolationPolicy.IndependentState`. The runtime file is separate from Dhall and has a versioned JSON envelope. This is the implemented version-1 shape, using harmless example values:
 
 ```json
 {

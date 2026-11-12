@@ -44,7 +44,7 @@ Options taking values are never accepted through passthrough.
 Matrices add `--mode run|test`, `--jobs N`, `--fail-fast`/`--keep-going`, `--output-dir DIR`, and
 `--overwrite`. Parallel client mode requires an output directory. Suites add `--jobs`, safety and
 fail-fast controls, `--external-service`, repeatable `--report junit|html|json|tap`, `--report-dir`,
-and `--overwrite`.
+and `--overwrite`, plus `--scenario-inputs FILE` for independent suites.
 
 Suites default to `isolation = Schema.IsolationPolicy.SharedState`, including manifests written
 before the field existed. With `--jobs` greater than one, every expanded run must be a `ReadOnly`
@@ -53,14 +53,23 @@ probes, binding resolution, or child starts, even with `--allow-mutating` or `--
 Use `--jobs 1 --allow-mutating` for shared-state writes. Standalone mutating matrices also require
 `--jobs 1`. The requested job count controls this check even for one expanded run.
 
-`IndependentState` declarations cannot name a shared managed service and currently fail execution
-with `independent-state-handoff-required`; the per-scenario runtime handoff is still being implemented.
+`IndependentState` requires `--external-service` and a complete `--scenario-inputs FILE`; it
+cannot declare a shared managed service. The file resolves relative to the invocation directory,
+is read once, and must be a regular non-symlink file with no group/other permissions. SharedState
+rejects scenario inputs. The [handoff contract](../guides/integration-testing.md#independent-scenario-handoff)
+defines version 1, origin uniqueness, parameter channels, and binding precedence.
 
 ## Artifacts and reports
 
 Client matrix responses use `OUTPUT/MATRIX/CASE.response`. Suite reports use
 `REPORT/SUITE/RUN/`: `junit.xml`, `html/`, `json/`, or `report.tap`. Every suite writes a redacted
-`summary.json` when a report directory is selected. Output directories are owner-only (`0700`) and
+`summary.json` when a report directory is selected. It identifies `isolation` (`shared-state` or
+`independent-state`) and each logical `scenario`. Safely reportable preflight refusals use status
+`refused`; missing runtime input uses `setup-failed`. Both list `not-started` cases, stable
+`reasonCodes`, and empty report lists. Cancellation preserves completed outcomes, marks unfinished
+cases `cancelled`, writes a best-effort `cancelled` summary after child cleanup, and propagates the
+original interruption. Unknown suites or unsafe/conflicting report destinations receive no new
+summary and leave existing trees untouched. Output directories are owner-only (`0700`) and
 files are owner-readable/writable (`0600`). Existing targets fail preflight unless overwrite is
 explicit; suite overwrite removes only the validated selected suite subtree.
 

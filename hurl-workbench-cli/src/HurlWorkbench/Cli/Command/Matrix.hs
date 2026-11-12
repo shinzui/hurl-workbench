@@ -178,6 +178,7 @@ renderCaseSummary result =
       CaseSkipped reason -> "SKIP  " <> result ^. #name <> " (" <> skipReason reason <> ")"
     skipReason FailFastTriggered = "fail-fast"
     skipReason BatchPrerequisiteFailed = "batch prerequisite failed"
+    skipReason BatchCancelled = "cancelled"
 
 preparationExitCode :: NonEmpty PreparationError -> Int
 preparationExitCode errors = maximum (map one (toList errors))

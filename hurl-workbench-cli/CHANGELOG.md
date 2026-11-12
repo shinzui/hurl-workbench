@@ -11,6 +11,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Compatible suite isolation declarations, with a shared-state default and early refusal of
   parallel mutation or unclassified suite runs; standalone mutating matrices require serial jobs.
+- Private versioned per-scenario runtime inputs for caller-owned independent suites, with unique
+  fixture/origin assignments, channel/conflict validation, and individually resolved bindings.
+- Safe isolation/scenario summaries for success, refusal, setup failure, and cancellation, plus
+  real two-database Hinagata acceptance covering fail-fast and caller-owned cleanup.
 
 - Explicit inherited or clean environment policies for managed service and readiness commands,
   with required-name preflight, compatible old manifests, and a caller-owned lease check driver.
