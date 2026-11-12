@@ -1,10 +1,19 @@
 cabal-version: 3.4
 name: hurl-workbench-core
 version: 0.1.0.0
-synopsis: A Haskell-powered Hurl workbench for composing, exploring, executing, and testing reusable API workflows without duplicating request templates.
+synopsis: Core library for composing and executing reusable Hurl API workflows
 description:
-  A Haskell-powered Hurl workbench for composing, exploring, executing, and testing reusable API workflows without duplicating request templates.
+  A Haskell-powered Hurl workbench for composing, exploring, executing, and
+  testing reusable API workflows without duplicating request templates.
+  .
+  This library provides the engine behind the @hurl-workbench@ command: typed,
+  versioned Dhall workspaces; byte-preserving Hurl fragment composition with
+  source-mapped validation; secure Hurl 8.x execution that keeps secrets out
+  of child argv; read-only and mutating recipes; bounded matrices; managed
+  services cleaned up as POSIX process groups; and ordered integration suites
+  with executable checks and isolated JUnit, HTML, JSON, and TAP reports.
 
+category: Web, Testing
 license: BSD-3-Clause
 license-file: LICENSE
 author: Nadeem Bitar
